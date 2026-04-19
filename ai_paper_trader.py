@@ -237,43 +237,95 @@ def execute_trade_actions(trader_name, actions, current_cash, snapshots, model_i
                 if time_held > 4.0 and price < float(pos_row[1]):
                     action_type = "sell"; reason = f"TIME-EXIT: Held {time_held:.1f}h without profit"
 
-        if action_type in ["buy", "add"]:
+        if action_type in ["buy", "add", "short"]:
             atr = indicators.get("ATRr_14", price * 0.02)
             qty = max(1, int(risk_per_trade / atr)) if atr > 0 else 1
             cost = price * qty
-            if current_cash < cost: qty = int(current_cash / price); cost = price * qty
+            
+            # Для лонга нужны деньги, для шорта нужно обеспечение (margin)
+            if action_type != "short" and current_cash < cost: 
+                qty = int(current_cash / price); cost = price * qty
             if qty <= 0: continue
             
-            # Проверка лимитов: на актив (15%) и на сектор (25%)
             cur.execute("SELECT secid, quantity, avg_entry_price FROM trading.position WHERE trader_name = %s", (trader_name,))
             all_positions = cur.fetchall()
-            
             curr_qty, curr_avg = next(((q, float(a)) for s, q, a in all_positions if s == secid), (0, 0.0))
-            if (curr_qty * curr_avg) + cost > limit_per_asset: 
-                log_event(f"[{trader_name}] Asset limit reached for {secid}")
-                continue
-                
-            # Проверка по секторам (Sector Limit)
-            target_sector = SECTOR_MAP.get(secid, "OTHER")
-            sector_exposure = sum(q * float(a) for s, q, a in all_positions if SECTOR_MAP.get(s, "OTHER") == target_sector)
-            if sector_exposure + cost > limit_per_sector:
-                log_event(f"[{trader_name}] Sector limit reached for {target_sector} (skipping {secid})")
-                continue
-
-            new_qty = curr_qty + qty; new_avg = ((curr_qty * curr_avg) + cost) / new_qty
-            cur.execute("UPDATE trading.portfolio SET cash_balance = cash_balance - %s WHERE trader_name = %s", (cost, trader_name))
+            
+            if action_type == "short":
+                # Для шорта мы продаем то, чего нет (или увеличиваем шорт)
+                qty = -qty
+                income = price * abs(qty)
+                # Проверка лимита на шорт (чтобы не уйти в маржин-колл)
+                if abs(curr_qty + qty) * price > limit_per_asset: continue
+                new_qty = curr_qty + qty
+                # Для шорта средняя цена считается так же (по модулю)
+                new_avg = ((abs(curr_qty) * curr_avg) + income) / abs(new_qty) if new_qty != 0 else 0
+                cur.execute("UPDATE trading.portfolio SET cash_balance = cash_balance + %s WHERE trader_name = %s", (income, trader_name))
+                current_cash += income
+                act_str = "SHORT"
+            else:
+                if (curr_qty * curr_avg) + cost > limit_per_asset: continue
+                # Проверка по секторам (только для лонгов)
+                target_sector = SECTOR_MAP.get(secid, "OTHER")
+                sector_exposure = sum(q * float(a) for s, q, a in all_positions if q > 0 and SECTOR_MAP.get(s, "OTHER") == target_sector)
+                if sector_exposure + cost > limit_per_sector: continue
+                new_qty = curr_qty + qty
+                new_avg = ((curr_qty * curr_avg) + cost) / new_qty if new_qty != 0 else 0
+                cur.execute("UPDATE trading.portfolio SET cash_balance = cash_balance - %s WHERE trader_name = %s", (cost, trader_name))
+                current_cash -= cost
+                act_str = "BUY"
+            
             cur.execute("INSERT INTO trading.position (trader_name, secid, quantity, avg_entry_price, updated_at) VALUES (%s,%s,%s,%s,NOW()) ON CONFLICT (trader_name, secid) DO UPDATE SET quantity=EXCLUDED.quantity, avg_entry_price=EXCLUDED.avg_entry_price, updated_at=NOW()", (trader_name, secid, new_qty, new_avg))
-            cur.execute("INSERT INTO trading.journal (trader_name, secid, action, quantity, price, reason, model_id, indicators_snapshot, created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,NOW())", (trader_name, secid, "BUY", qty, price, reason, model_id, json.dumps(indicators)))
-            current_cash -= cost; log_event(f"[{trader_name}] EXECUTED BUY: {secid} x{qty} @{price}")
-        elif action_type in ["sell", "close", "reduce"]:
-            if not pos_row or pos_row[0] <= 0: continue
-            qty_to_sell = pos_row[0] if action_type in ["sell", "close"] else max(1, pos_row[0] // 2)
-            income = price * qty_to_sell
-            cur.execute("UPDATE trading.portfolio SET cash_balance = cash_balance + %s WHERE trader_name = %s", (income, trader_name))
-            if pos_row[0] - qty_to_sell <= 0: cur.execute("DELETE FROM trading.position WHERE trader_name = %s AND secid = %s", (trader_name, secid))
-            else: cur.execute("UPDATE trading.position SET quantity = quantity - %s WHERE trader_name = %s AND secid = %s", (qty_to_sell, trader_name, secid))
-            cur.execute("INSERT INTO trading.journal (trader_name, secid, action, quantity, price, reason, model_id, indicators_snapshot, created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,NOW())", (trader_name, secid, "SELL", qty_to_sell, price, reason, model_id, json.dumps(indicators)))
-            current_cash += income; log_event(f"[{trader_name}] EXECUTED SELL: {secid} x{qty_to_sell} @{price}")
+            cur.execute("INSERT INTO trading.journal (trader_name, secid, action, quantity, price, reason, model_id, indicators_snapshot, created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,NOW())", (trader_name, secid, act_str, abs(qty), price, reason, model_id, json.dumps(indicators)))
+            log_event(f"[{trader_name}] EXECUTED {act_str}: {secid} x{abs(qty)} @{price}")
+
+        elif action_type in ["sell", "close", "reduce", "cover"]:
+            cur.execute("SELECT quantity FROM trading.position WHERE trader_name = %s AND secid = %s", (trader_name, secid))
+            row = cur.fetchone()
+            if not row: continue
+            curr_qty = row[0]
+            if curr_qty == 0: continue
+            
+            if action_type == "cover" and curr_qty < 0:
+                # Откуп шорта
+                qty_to_cover = abs(curr_qty) if action_type == "cover" else max(1, abs(curr_qty) // 2)
+                cost = price * qty_to_cover
+                cur.execute("UPDATE trading.portfolio SET cash_balance = cash_balance - %s WHERE trader_name = %s", (cost, trader_name))
+                current_cash -= cost
+                if curr_qty + qty_to_cover >= 0:
+                    cur.execute("DELETE FROM trading.position WHERE trader_name = %s AND secid = %s", (trader_name, secid))
+                else:
+                    cur.execute("UPDATE trading.position SET quantity = quantity + %s WHERE trader_name = %s AND secid = %s", (qty_to_cover, trader_name, secid))
+                cur.execute("INSERT INTO trading.journal (trader_name, secid, action, quantity, price, reason, model_id, indicators_snapshot, created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,NOW())", (trader_name, secid, "COVER", qty_to_cover, price, reason, model_id, json.dumps(indicators)))
+                log_event(f"[{trader_name}] EXECUTED COVER: {secid} x{qty_to_cover} @{price}")
+                
+            elif curr_qty > 0 and action_type in ["sell", "close", "reduce"]:
+                # Закрытие лонга
+                qty_to_sell = curr_qty if action_type in ["sell", "close"] else max(1, curr_qty // 2)
+                income = price * qty_to_sell
+                cur.execute("UPDATE trading.portfolio SET cash_balance = cash_balance + %s WHERE trader_name = %s", (income, trader_name))
+                current_cash += income
+                if curr_qty - qty_to_sell <= 0:
+                    cur.execute("DELETE FROM trading.position WHERE trader_name = %s AND secid = %s", (trader_name, secid))
+                else:
+                    cur.execute("UPDATE trading.position SET quantity = quantity - %s WHERE trader_name = %s AND secid = %s", (qty_to_sell, trader_name, secid))
+                cur.execute("INSERT INTO trading.journal (trader_name, secid, action, quantity, price, reason, model_id, indicators_snapshot, created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,NOW())", (trader_name, secid, "SELL", qty_to_sell, price, reason, model_id, json.dumps(indicators)))
+                log_event(f"[{trader_name}] EXECUTED SELL: {secid} x{qty_to_sell} @{price}")
+
+        elif action_type in ["limit_buy", "limit_sell", "stop_loss"]:
+            # ОТЛОЖЕННЫЕ ОРДЕРА
+            target_price = act.get("target_price")
+            if not target_price:
+                log_event(f"[{trader_name}] Target price missing for {action_type} {secid}")
+                continue
+            atr = indicators.get("ATRr_14", price * 0.02)
+            qty = max(1, int(risk_per_trade / atr)) if atr > 0 else 1
+            cur.execute("""
+                INSERT INTO trading.orders (trader_name, secid, order_type, quantity, target_price, status, model_id, reason, created_at)
+                VALUES (%s, %s, %s, %s, %s, 'PENDING', %s, %s, NOW())
+            """, (trader_name, secid, action_type, qty, target_price, model_id, reason))
+            log_event(f"[{trader_name}] PLACED ORDER: {action_type} {secid} x{qty} @{target_price}")
+
     conn.commit(); cur.close(); conn.close()
 
 def main():
@@ -328,7 +380,8 @@ def main():
         f"STRATEGIC GUIDELINE: {EXPERT_GUIDES.get(name, 'Use all indicators to maximize profit.')}",
         f"LEAGUE TRADES (For Oracle): {league_recent_trades}" if name == "Meta_Oracle" else "",
         "TECHNICAL MANUAL: - Alligator: Jaw(Blue), Teeth(Red), Lips(Green). Open mouth = trend. - CK_STOP: Chande Kroll Stop for exits. PSAR: Parabolic SAR for trend. - TSI: True Strength Index. RVI: Relative Vigor Index. CHOP: >61 means sideways market.",
-        f"1. Query 'lightrag-algo' for '{TRADERS_DATA[name]['query']}'. 2. Respond ONLY raw JSON object with keys: summary, market_bias, confidence, actions, risk_notes."
+        "ORDER TYPES: You can use 'buy', 'sell' (market execution). You can also use 'limit_buy', 'limit_sell', 'stop_loss' (must provide 'target_price'). You can use 'short' to short-sell, and 'cover' to close a short.",
+        f"1. Query 'lightrag-algo' for '{TRADERS_DATA[name]['query']}'. 2. Respond ONLY raw JSON object with keys: summary, market_bias, confidence, actions (array with secid, action, target_price (optional), reason), risk_notes."
     ]
     prompt = " ".join(prompt_parts)
     decisions, used_model = call_ai_with_fallback(prompt, models, trader_name=name)

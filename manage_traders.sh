@@ -71,6 +71,19 @@ status() {
             echo -e "$TRADER\t\tSTOPPED\t\t-\t\t$SIZE"
         fi
     done
+    
+    # Статус служебных воркеров
+    for WORKER in "hourly_report" "matching_engine"; do
+        PID=$(pgrep -f "run_${WORKER}.sh")
+        LOG="$LOG_DIR/${WORKER}.log"
+        SIZE=$(du -h "$LOG" 2>/dev/null | cut -f1)
+        [ -z "$SIZE" ] && SIZE="0"
+        if [ -n "$PID" ]; then
+            echo -e "${WORKER}\tRUNNING\t\t$PID\t\t$SIZE"
+        else
+            echo -e "${WORKER}\tSTOPPED\t\t-\t\t$SIZE"
+        fi
+    done
 }
 
 start_all() {
@@ -87,6 +100,12 @@ start_all() {
     PID=$(pgrep -f "run_hourly_report.sh")
     if [ -z "$PID" ]; then
         nohup bash "$TRADERS_DIR/run_hourly_report.sh" > /dev/null 2>&1 &
+    fi
+
+    echo "Starting Order Matching Engine..."
+    PID_ME=$(pgrep -f "run_matching_engine.sh")
+    if [ -z "$PID_ME" ]; then
+        nohup bash "$TRADERS_DIR/run_matching_engine.sh" > /dev/null 2>&1 &
     fi
 }
 
