@@ -238,6 +238,12 @@ def execute_trade_actions(trader_name, actions, current_cash, snapshots, model_i
                     action_type = "sell"; reason = f"TIME-EXIT: Held {time_held:.1f}h without profit"
 
         if action_type in ["buy", "add", "short"]:
+            # Проверка сентимента (News Oracle)
+            sentiment_score = ticker_data.get("sentiment", {}).get("score", 0)
+            if action_type in ["buy", "add"] and sentiment_score < -0.5:
+                log_event(f"[{trader_name}] Cancel BUY {secid}: Sentiment Oracle blocks due to score {sentiment_score:.2f}")
+                continue
+
             atr = indicators.get("ATRr_14", price * 0.02)
             qty = max(1, int(risk_per_trade / atr)) if atr > 0 else 1
             cost = price * qty
@@ -356,9 +362,17 @@ def main():
         cur.execute("SELECT trader_name, action, secid, created_at FROM trading.journal WHERE created_at > now() - interval '1 hour' ORDER BY created_at DESC LIMIT 20")
         league_recent_trades = " | ".join([f"[{r[3].strftime('%H:%M')}] {r[0]} {r[1]} {r[2]}" for r in cur.fetchall()])
 
-    cur.close(); conn.close()
-
+    # Загружаем сентимент
     filtered_market = {ticker: compact_context_payload(stock_context[ticker]) for ticker in sorted(relevant_ids) if ticker in stock_context}
+    cur.execute("SELECT secid, score, summary FROM analytics.market_sentiment")
+    sentiment_data = {r[0]: {"score": float(r[1]), "summary": r[2]} for r in cur.fetchall()}
+    for secid, data in sentiment_data.items():
+        if secid in filtered_market:
+            filtered_market[secid]["sentiment"] = data
+        if secid in snapshots:
+            snapshots[secid]["sentiment"] = data
+
+    cur.close(); conn.close()
     EXPERT_GUIDES = {
         "VSA_Victor": "Focus on volume/price spread. Check if price is at Donchian Channel extremes with high volume (Climax).",
         "Chaos_Bill": "Priority: Williams Alligator (AL_JAW/TEETH/LIPS) and Fractals. Buy ONLY if price is above the teeth and a fresh fractal_up appears.",
