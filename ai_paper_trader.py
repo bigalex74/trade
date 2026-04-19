@@ -37,18 +37,21 @@ TRADERS_DATA = {
 }
 
 # LOAD BALANCING CONFIG
+# Все агенты имеют равные условия: сначала самая умная модель, затем быстрая, и только при полном отказе облака - локальная Ollama.
+EQUAL_MODELS = ["gemini-3.1-pro-preview", "gemini-3-flash-preview", "ollama/llama3.2"]
+
 TRADER_MODELS = {
-    "VSA_Victor": ["gemini-3.1-pro-preview", "gemini-3-flash-preview"],
-    "Chaos_Bill": ["gemini-3.1-pro-preview", "gemini-3-flash-preview"],
-    "Elliott_Alex": ["gemini-3.1-pro-preview", "gemini-3-flash-preview"],
-    "Quant_Diana": ["gemini-3-flash-preview", "gemini-3.1-pro-preview"],
-    "PriceAction_Nikita": ["gemini-3-flash-preview", "gemini-3.1-pro-preview"],
-    "Contrarian_Ricardo": ["gemini-3-flash-preview", "gemini-3.1-pro-preview"],
-    "Passive_Palych": ["ollama/llama3.2", "gemini-3-flash-preview"],
-    "Value_Monya": ["ollama/llama3.2", "gemini-3-flash-preview"],
-    "Index_Tracker": ["ollama/llama3.2", "gemini-3-flash-preview"],
-    "Scalper_Kesha": ["gemini-3-flash-preview", "ollama/llama3.2"],
-    "Meta_Oracle": ["gemini-3.1-pro-preview", "gemini-3-flash-preview"]
+    "VSA_Victor": EQUAL_MODELS,
+    "Chaos_Bill": EQUAL_MODELS,
+    "Elliott_Alex": EQUAL_MODELS,
+    "Quant_Diana": EQUAL_MODELS,
+    "PriceAction_Nikita": EQUAL_MODELS,
+    "Contrarian_Ricardo": EQUAL_MODELS,
+    "Passive_Palych": EQUAL_MODELS,
+    "Value_Monya": EQUAL_MODELS,
+    "Index_Tracker": EQUAL_MODELS,
+    "Scalper_Kesha": EQUAL_MODELS,
+    "Meta_Oracle": EQUAL_MODELS
 }
 
 TRADE_VERB_LABELS = {
