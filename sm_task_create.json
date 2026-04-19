@@ -1,0 +1,35 @@
+[
+  {
+    "id": "task_create",
+    "name": "SM - Task - Create",
+    "nodes": [
+      {
+        "parameters": {},
+        "id": "trigger",
+        "name": "When Executed by Another Workflow",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1,
+        "position": [0, 0]
+      },
+      {
+        "parameters": {
+          "jsCode": "return {\n  message: `🆕 <b>Задача создана</b>\\n\\n📄 Документ: <b>${ $json.file_name }</b>\\n\\n🚀 <i>Обработка начнётся через несколько секунд...</i>`,\n  type: 'create',\n  button: {}\n}"
+        },
+        "id": "code",
+        "name": "Format",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [220, 0]
+      }
+    ],
+    "connections": {
+      "When Executed by Another Workflow": {
+        "main": [[{ "node": "Format", "type": "main", "index": 0 }]]
+      }
+    },
+    "active": true,
+    "settings": {
+      "executionOrder": "v1"
+    }
+  }
+]

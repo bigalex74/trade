@@ -1,0 +1,81 @@
+{
+  "id": "pmfooV949S1weDwV",
+  "name": "System - Stats Dashboard",
+  "nodes": [
+    {
+      "parameters": { "path": "stats", "options": {} },
+      "id": "dash-1-webhook",
+      "name": "Webhook: /stats",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 200]
+    },
+    {
+      "parameters": {},
+      "id": "manual-trigger-id",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 40]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "database": "postgres",
+        "query": "SELECT * FROM public.v_novel_dashboard;",
+        "options": {}
+      },
+      "id": "dash-2-stats",
+      "name": "Get Global Stats",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [250, 120],
+      "credentials": { "postgres": { "id": "iGih4QSBWfmpkdGY", "name": "Postgres account" } }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "database": "postgres",
+        "query": "SELECT file_name, status, created_at FROM public.document_jobs WHERE status = 'processing' ORDER BY created_at DESC LIMIT 3;",
+        "options": {}
+      },
+      "id": "dash-3-active",
+      "name": "Get Active Jobs",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [500, 120],
+      "credentials": { "postgres": { "id": "iGih4QSBWfmpkdGY", "name": "Postgres account" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "let stats = {};\ntry {\n  stats = $('Get Global Stats').first().json;\n} catch (e) {\n  stats = { total_jobs: 0, completed_jobs: 0, active_jobs: 0 };\n}\n\nconst activeItems = $('Get Active Jobs').all();\n\nlet text = '<b>📊 НОВЕЛЛЫ: ДАШБОРД ПЕРЕВОДА</b>\\n\\n';\ntext += '━━━━━━━━━━━━━━━\\n';\ntext += '📑 <b>Всего заданий:</b> ' + (stats.total_jobs || 0) + '\\n';\ntext += '✅ <b>Завершено:</b> ' + (stats.completed_jobs || 0) + '\\n';\ntext += '⏳ <b>В процессе:</b> ' + (stats.active_jobs || 0) + '\\n';\ntext += '━━━━━━━━━━━━━━━\\n';\ntext += '🧩 <b>Чанков переведено:</b> ' + (stats.total_chunks_translated || 0) + '\\n';\ntext += '💰 <b>Neuro billing:</b> $' + (stats.total_neuro || 0) + '\\n';\ntext += '💰 <b>Polza billing:</b> $' + (stats.total_polza || 0) + '\\n';\ntext += '━━━━━━━━━━━━━━━\\n';\n\nif (activeItems && activeItems.length > 0 && activeItems[0].json.file_name) {\n  text += '\\n🔥 <b>АКТИВНЫЕ ЗАДАЧИ:</b>\\n';\n  activeItems.forEach(item => {\n    const job = item.json;\n    text += '\\n▶️ <code>' + (job.file_name || 'Без имени') + '</code>\\n';\n    const date = job.created_at ? new Date(job.created_at).toLocaleString('ru-RU') : '---';\n    text += '   ↳ <i>Старт: ' + date + '</i>\\n';\n  });\n} else {\n  text += '\\n🛌 <i>Активных задач нет</i>\\n';\n}\n\ntext += '\\n🕒 <i>Обновлено: ' + new Date().toLocaleString('ru-RU') + '</i>';\n\nreturn { message: text };"
+      },
+      "id": "dash-4-format",
+      "name": "Format Dashboard",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [750, 120]
+    },
+    {
+      "parameters": {
+        "chatId": "923741104",
+        "text": "={{ $json.message }}",
+        "additionalFields": { "parse_mode": "HTML" }
+      },
+      "id": "dash-5-send",
+      "name": "Send Dashboard",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1000, 120],
+      "credentials": { "telegramApi": { "id": "V4jPr27PQcfRRHY9", "name": "Telegram account" } }
+    }
+  ],
+  "connections": {
+    "Manual Trigger": { "main": [[{ "node": "Get Global Stats", "type": "main", "index": 0 }]] },
+    "Webhook: /stats": { "main": [[{ "node": "Get Global Stats", "type": "main", "index": 0 }]] },
+    "Get Global Stats": { "main": [[{ "node": "Get Active Jobs", "type": "main", "index": 0 }]] },
+    "Get Active Jobs": { "main": [[{ "node": "Format Dashboard", "type": "main", "index": 0 }]] },
+    "Format Dashboard": { "main": [[{ "node": "Send Dashboard", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}

@@ -1,0 +1,13 @@
+{
+    "Servers": {
+        "1": {
+            "Name": "n8n Database",
+            "Group": "PostgreSQL",
+            "Host": "n8n-docker-db-1",
+            "Port": 5432,
+            "MaintenanceDB": "n8n_database",
+            "Username": "n8n_user",
+            "PassFile": "/pgpass"
+        }
+    }
+}

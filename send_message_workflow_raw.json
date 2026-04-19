@@ -1,0 +1,993 @@
+          "tableName": {
+            "__rl": true,
+            "value": "telegram_send_message",
+            "mode": "list",
+            "cachedResultName": "telegram_send_message"
+          },
+          "additionalFields": {},
+          "options": {}
+        },
+        "type": "n8n-nodes-base.postgresTrigger",
+        "typeVersion": 1,
+        "position": [
+          -576,
+          48
+        ],
+        "id": "62e088d5-2e04-4ede-95b3-c526343fbac1",
+        "name": "Postgres Trigger",
+        "credentials": {
+          "postgres": {
+            "id": "iGih4QSBWfmpkdGY",
+            "name": "Postgres account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "rules": {
+            "values": [
+              {
+                "conditions": {
+                  "options": {
+                    "caseSensitive": true,
+                    "leftValue": "",
+                    "typeValidation": "strict",
+                    "version": 3
+                  },
+                  "conditions": [
+                    {
+                      "leftValue": "={{ $('Postgres Trigger').first().json.payload.template }}",
+                      "rightValue": "create_job",
+                      "operator": {
+                        "type": "string",
+                        "operation": "equals"
+                      },
+                      "id": "0c9d6f18-3743-4b38-aa1c-1048c3250dbc"
+                    }
+                  ],
+                  "combinator": "and"
+                },
+                "renameOutput": true,
+                "outputKey": "CREATE JOB"
+              },
+              {
+                "conditions": {
+                  "options": {
+                    "caseSensitive": true,
+                    "leftValue": "",
+                    "typeValidation": "strict",
+                    "version": 3
+                  },
+                  "conditions": [
+                    {
+                      "id": "74658670-90d4-4f9a-80c6-3c67c2f71c4a",
+                      "leftValue": "={{ $('Postgres Trigger').first().json.payload.template }}",
+                      "rightValue": "start_processing",
+                      "operator": {
+                        "type": "string",
+                        "operation": "equals",
+                        "name": "filter.operator.equals"
+                      }
+                    }
+                  ],
+                  "combinator": "and"
+                },
+                "renameOutput": true,
+                "outputKey": "START_PROCESSING"
+              },
+              {
+                "conditions": {
+                  "options": {
+                    "caseSensitive": true,
+                    "leftValue": "",
+                    "typeValidation": "strict",
+                    "version": 3
+                  },
+                  "conditions": [
+                    {
+                      "id": "183d6fca-f700-47ed-87c2-3f9f37385356",
+                      "leftValue": "={{ $('Postgres Trigger').first().json.payload.template }}",
+                      "rightValue": "wait_processing",
+                      "operator": {
+                        "type": "string",
+                        "operation": "equals",
+                        "name": "filter.operator.equals"
+                      }
+                    }
+                  ],
+                  "combinator": "and"
+                },
+                "renameOutput": true,
+                "outputKey": "WAIT_PROCESSING"
+              },
+              {
+                "conditions": {
+                  "options": {
+                    "caseSensitive": true,
+                    "leftValue": "",
+                    "typeValidation": "strict",
+                    "version": 3
+                  },
+                  "conditions": [
+                    {
+                      "id": "2de1a4bb-258f-4c6d-9e05-c3a96fab0bee",
+                      "leftValue": "={{ $('Postgres Trigger').first().json.payload.template }}",
+                      "rightValue": "processing",
+                      "operator": {
+                        "type": "string",
+                        "operation": "equals",
+                        "name": "filter.operator.equals"
+                      }
+                    }
+                  ],
+                  "combinator": "and"
+                },
+                "renameOutput": true,
+                "outputKey": "PROCESSING"
+              },
+              {
+                "conditions": {
+                  "options": {
+                    "caseSensitive": true,
+                    "leftValue": "",
+                    "typeValidation": "strict",
+                    "version": 3
+                  },
+                  "conditions": [
+                    {
+                      "id": "97e38999-1f14-4fd5-bda6-4d3aca9a8899",
+                      "leftValue": "={{ $('Postgres Trigger').first().json.payload.template }}",
+                      "rightValue": "error_processing",
+                      "operator": {
+                        "type": "string",
+                        "operation": "equals",
+                        "name": "filter.operator.equals"
+                      }
+                    }
+                  ],
+                  "combinator": "and"
+                },
+                "renameOutput": true,
+                "outputKey": "ERROR_PROCESSING"
+              },
+              {
+                "conditions": {
+                  "options": {
+                    "caseSensitive": true,
+                    "leftValue": "",
+                    "typeValidation": "strict",
+                    "version": 3
+                  },
+                  "conditions": [
+                    {
+                      "id": "20a4b302-9de2-4d4d-9037-a19a20bea1d1",
+                      "leftValue": "={{ $('Postgres Trigger').first().json.payload.template }}",
+                      "rightValue": "finish_processing",
+                      "operator": {
+                        "type": "string",
+                        "operation": "equals",
+                        "name": "filter.operator.equals"
+                      }
+                    }
+                  ],
+                  "combinator": "and"
+                },
+                "renameOutput": true,
+                "outputKey": "FINISH_PROCESSING"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.switch",
+        "typeVersion": 3.4,
+        "position": [
+          208,
+          -16
+        ],
+        "id": "a2a1f209-51a6-4111-be09-e24ac6033763",
+        "name": "Switch"
+      },
+      {
+        "parameters": {
+          "options": {
+            "reset": false
+          }
+        },
+        "type": "n8n-nodes-base.splitInBatches",
+        "typeVersion": 3,
+        "position": [
+          1232,
+          80
+        ],
+        "id": "2e8b1f6d-e501-4463-8251-78cde5492481",
+        "name": "Loop Over Items"
+      },
+      {
+        "parameters": {},
+        "type": "n8n-nodes-base.noOp",
+        "name": "Replace Me",
+        "typeVersion": 1,
+        "position": [
+          3488,
+          368
+        ],
+        "id": "ed801708-bb9a-40cd-a86d-b4809b8eebb6"
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT json_array_elements(json_agg(json_build_object('id',\"id\", 'chat',\"chat\"))) as telegram_chats FROM telegram_chats;",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          992,
+          80
+        ],
+        "id": "e5eccdfb-a4b9-4ac0-a2e9-10e09425c1aa",
+        "name": "Execute a SQL query1",
+        "executeOnce": true,
+        "alwaysOutputData": true,
+        "retryOnFail": true,
+        "credentials": {
+          "postgres": {
+            "id": "iGih4QSBWfmpkdGY",
+            "name": "Postgres account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT * FROM document_jobs a, job_current b WHERE a.id =b.job_id;",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          -288,
+          -784
+        ],
+        "id": "6b5eb0fc-8335-4cc1-b50d-5cbe4543777d",
+        "name": "Данные document_jobs",
+        "alwaysOutputData": true,
+        "executeOnce": true,
+        "retryOnFail": true,
+        "credentials": {
+          "postgres": {
+            "id": "iGih4QSBWfmpkdGY",
+            "name": "Postgres account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT count(*) as chunks_total FROM document_chunks WHERE job_id IN (SELECT job_id FROM job_current);",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          -288,
+          -592
+        ],
+        "id": "04bc965e-38c8-4fee-a27b-5fe6a9e9c461",
+        "name": "Общее количество чанков",
+        "alwaysOutputData": true,
+        "executeOnce": true,
+        "retryOnFail": true,
+        "credentials": {
+          "postgres": {
+            "id": "iGih4QSBWfmpkdGY",
+            "name": "Postgres account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "return {\n  message: `🆕 <b>Задача создана</b>\n  \n📄  Документ: <b>${ $input.first().json.file_name }</b>\n\n🚀 <i>Обработка начнётся через несколько секунд...</i>`,\n  type: 'create',\n  button: {}\n}"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          480,
+          -496
+        ],
+        "id": "06ba7b5f-8a71-412b-a35c-469239008ca2",
+        "name": "Сообщение Задача создана"
+      },
+      {
+        "parameters": {
+          "jsCode": "const total = $input.all().find(item => item.json?.chunks_total)\nconst file = $input.first().json.file_name;\nreturn {\n  message: `\n▶️ <b>Обработка началась</b>\n\n📄 Документ: <b>${file}</b>\n🔄 Статус: <b>В процессе</b>\n📊 Прогресс:0 /4832 (0%)\n💰 Потрачено: $0.00\n⏳ Оценка времени: ~82 часа\n`,\n  type: 'create',\n  button: {}\n};"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          480,
+          -288
+        ],
+        "id": "0a28a527-68a9-4b21-b80e-9498a957c272",
+        "name": "Сообщение Старт обработки"
+      },
+      {
+        "parameters": {
+          "numberInputs": 6
+        },
+        "type": "n8n-nodes-base.merge",
+        "typeVersion": 3.2,
+        "position": [
+          768,
+          16
+        ],
+        "id": "2b7d8a2e-8fd5-496a-8a21-d6a333d771d9",
+        "name": "Merge"
+      },
+      {
+        "parameters": {
+          "numberInputs": 9
+        },
+        "type": "n8n-nodes-base.merge",
+        "typeVersion": 3.2,
+        "position": [
+          16,
+          -64
+        ],
+        "id": "0c4aecd0-623b-47e4-8ab8-616671051a64",
+        "name": "Merge1"
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT count(*) as chunks_done FROM document_chunks WHERE job_id IN (SELECT job_id FROM job_current) AND status='done';",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          -288,
+          -368
+        ],
+        "id": "b68dd6b0-17a8-483f-af2a-25f8d713141c",
+        "name": "Количество законченных чанков",
+        "alwaysOutputData": true,
+        "executeOnce": true,
+        "retryOnFail": true,
+        "credentials": {
+          "postgres": {
+            "id": "iGih4QSBWfmpkdGY",
+            "name": "Postgres account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "numberInputs": 4
+        },
+        "type": "n8n-nodes-base.merge",
+        "typeVersion": 3.2,
+        "position": [
+          2896,
+          48
+        ],
+        "id": "be2cb533-1d9a-4e43-b364-dec45e07553d",
+        "name": "Merge2"
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "UPDATE telegram_message SET message_id = {{ $json.result.message_id }} WHERE chat_id = {{ $('Loop Over Items').first().json.telegram_chats.id }}",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          3296,
+          -16
+        ],
+        "id": "9d78f8f2-bc6e-4357-9192-69e7a5924848",
+        "name": "Execute a SQL query",
+        "alwaysOutputData": true,
+        "executeOnce": true,
+        "retryOnFail": true,
+        "credentials": {
+          "postgres": {
+            "id": "iGih4QSBWfmpkdGY",
+            "name": "Postgres account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "const RUBLE_EXCHANGE_RATE = 79;\n\nconst billing_polza = Number($('Данные document_jobs').first().json.billing_polza) - Number($('Billing Polza.ai').first().json.amount);\nconst billing_neuro = -(Number($('Данные document_jobs').first().json.billing_neuro) - Number($('Billing Neuro').first().json.total_usage)) / 100;\n\nconst startedAtMs = DateTime.fromISO($('Данные document_jobs').first().json.created_at);\nconst diff = startedAtMs.diffNow().negate().toFormat(\"hh':'mm':'ss\")\n\nconst done = Number($('Количество законченных чанков').first().json.chunks_done);\nconst total = Number($('Общее количество чанков').first().json.chunks_total);\n// const done = Math.floor(Math.random() * total);\nconst ratio = Math.min(1, Math.max(0, done / total));\n\nconst startedAt = startedAtMs.toFormat(\"dd.MM.yyyy HH:mm:ss\");\n\nconst width =20;\nconst filled = Math.round(ratio * width);\nconst bar = '█'.repeat(filled) + '░'.repeat(width - filled);\n\nreturn {\n  message: `\n🔄 <b>Перевод в процессе</b>\n\n📄 Документ: ${$('Данные document_jobs').first().json.file_name}\n<b>🗓 Старт:</b> <code>${ startedAt }</code> \n<b>⏱ Прошло: <code>${ diff }</code></b>\n<b>📊 Прогресс:</b> <code>${ `${bar} ${Math.floor(ratio*100)}%` }</code> \n<b>🧩 Текущий чанк: <code>${ done }/${ total }</code></b>\n💰 Потрачено на Polza.ai: \n      ₽ ${ billing_polza.toFixed(2) }\n💰 Потрачено на NeuroAPI: \n      ₽ ${(billing_neuro * RUBLE_EXCHANGE_RATE).toFixed(2).toString().replace(/\\B(?=(\\d{3})+(?!\\d))/g, \" \")}\n\n<i>Сообщение сгенерировано автоматически.</i>\n  `,\n  type: 'edit',\n  button: {}\n} "
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          480,
+          144
+        ],
+        "id": "b5e3c1b3-2872-4f72-9990-6bee45c61134",
+        "name": "Сообщение Перевод в процессе"
+      },
+      {
+        "parameters": {
+          "jsCode": "const RUBLE_EXCHANGE_RATE = 79;\n\nconst billing_polza = Number($('Данные document_jobs').first().json.billing_polza) - Number($('Billing Polza.ai').first().json.amount);\n\nconst billing_neuro = -(Number($('Данные document_jobs').first().json.billing_neuro) - Number($('Billing Neuro').first().json.total_usage)) / 100;\n\nconst diff = DateTime.fromISO($('Данные document_jobs').first().json.created_at).diff(DateTime.fromISO($('Данные document_jobs').first().json.finished_at)).negate().toFormat(\"hh':'mm':'ss\");\n\nconst avv_time = DateTime.fromISO($('Данные document_jobs').first().json.created_at).diff(DateTime.fromISO($('Данные document_jobs').first().json.finished_at)).negate().toMillis() / (Number($('Общее количество чанков').first().json.chunks_total) || 1) / 1000;\n\nconst avv_cost = (billing_polza + billing_neuro * RUBLE_EXCHANGE_RATE) /  (Number($('Общее количество чанков').first().json.chunks_total) || 1);\n\nconst source = $('Бинарные данные файлов').first().json.source;\n\nconst message = {\n  message: `\n✅ <b>Перевод завершен!</b>\n\n📄 Документ (исходный): \n     ${$('Данные document_jobs').first().json.file_name}\n📄 Документ (с переводом): \n     ${$('Данные document_jobs').first().json.translated_file}\n\n💰 Итоговая стоимость Polza.ai: \n      ₽ ${ billing_polza.toFixed(2) }\n💰 Итоговая стоимость NeuroAPI: \n      $ ${ billing_neuro.toFixed(2) } (₽ ${(billing_neuro * RUBLE_EXCHANGE_RATE).toFixed(2).toString().replace(/\\B(?=(\\d{3})+(?!\\d))/g, \" \")})\n     \n🗓 Старт: <code>${ DateTime.fromISO($('Данные document_jobs').first().json.created_at).toFormat(\"dd.MM.yyyy HH:mm:ss\") }</code> \n⏱ Переведено за: <code>${ diff } (чч:мм:сс)</code>\n\n🔢 <b>Чанков переведено: ${$('Общее количество чанков').first().json.chunks_total}</b>\n⌛ Среднее время перевода 1 чанка: \n       ${ (avv_time).toLocaleString()} сек.\n💰 Средняя стоимость 1 чанка ≈\n       ₽ ${ avv_cost.toFixed(2) }\n\n📄 <b>Документ был поделен на:</b>\n       Главы - ${$('Количество глав').first().json.count}\n       Арки - ${$('Количество арок').first().json.count}\n\n${source !== 'telegram' ? `<a href=\"${$('Данные document_jobs').first().json.web_chapters_link}\">Summary</a>\\n` : ''}\n${source != 'telegram' ? '📁 <i>Файл сохранён на Google Drive</i>' : ''}\n`,\n  type: 'create'\n}\n\nif (source != 'telegram')\n  message.button = {\n    name: '📂 Открыть файл',\n    text: $('Данные document_jobs').first().json.web_view_link || 'http://link.com'\n  }\n\nreturn { ...message }"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          544,
+          576
+        ],
+        "id": "d38caa73-1e10-4a71-9eb4-0e386874c47c",
+        "name": "Сообщение Перевод завершен"
+      },
+      {
+        "parameters": {
+          "chatId": "={{ $('Loop Over Items').first().json.telegram_chats.chat }}",
+          "text": "={{ $('Merge').first().json.message }}",
+          "additionalFields": {
+            "appendAttribution": false,
+            "disable_notification": true,
+            "parse_mode": "HTML"
+          }
+        },
+        "type": "n8n-nodes-base.telegram",
+        "typeVersion": 1.2,
+        "position": [
+          2224,
+          144
+        ],
+        "id": "0b521a8f-2f44-45c5-9201-9789f7586d6a",
+        "name": "Send a text message withot Keyboard",
+        "webhookId": "eb6db2ad-5d6c-4ed7-b4fe-1f4c9b326b14",
+        "credentials": {
+          "telegramApi": {
+            "id": "V4jPr27PQcfRRHY9",
+            "name": "Telegram account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "94a4769d-ea63-42f6-b761-098db6d36782",
+                "leftValue": "={{ $('Merge').first().json.button }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "object",
+                  "operation": "empty",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          2000,
+          256
+        ],
+        "id": "89490d40-0f1a-4f98-9b9c-adb6261409fe",
+        "name": "If3"
+      },
+      {
+        "parameters": {
+          "chatId": "={{ $('Loop Over Items').first().json.telegram_chats.chat }}",
+          "text": "={{ $('Merge').first().json.message }}",
+          "replyMarkup": "inlineKeyboard",
+          "inlineKeyboard": {
+            "rows": [
+              {
+                "row": {
+                  "buttons": [
+                    {
+                      "text": "={{ $('Merge').first().json.button.name }}",
+                      "additionalFields": {
+                        "callback_data": "={{ $('Merge').first().json.button?.callbackData || '' }}",
+                        "url": "={{ $('Merge').first().json.button?.text || '' }}"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "additionalFields": {
+            "appendAttribution": false,
+            "disable_notification": true,
+            "parse_mode": "HTML"
+          }
+        },
+        "type": "n8n-nodes-base.telegram",
+        "typeVersion": 1.2,
+        "position": [
+          2224,
+          352
+        ],
+        "id": "130d86b4-2cac-4c17-a785-b2b0c99d110d",
+        "name": "Send a text message with Keyboard",
+        "webhookId": "eb6db2ad-5d6c-4ed7-b4fe-1f4c9b326b14",
+        "credentials": {
+          "telegramApi": {
+            "id": "V4jPr27PQcfRRHY9",
+            "name": "Telegram account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "url": "https://polza.ai/api/v1/balance",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "Bearer pza_PV5t0y6PTuE8GLcZ-jgvlpNDLlZm0mUT"
+              }
+            ]
+          },
+          "options": {
+            "timeout": 1000
+          }
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [
+          -288,
+          -160
+        ],
+        "id": "3f820229-a080-4a07-a590-8efcaad6e20b",
+        "name": "Billing Polza.ai",
+        "onError": "continueRegularOutput"
+      },
+      {
+        "parameters": {
+          "url": "https://neuroapi.host/v1/dashboard/billing/usage",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "Bearer sk-JPPv8NvhqimYVBabJvm6fB5mlv80WnLV673tfVzFm6IYq67V"
+              }
+            ]
+          },
+          "options": {
+            "timeout": 1000
+          }
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [
+          -288,
+          48
+        ],
+        "id": "834d1b93-1092-4ec3-8a91-020fb9619d3b",
+        "name": "Billing Neuro",
+        "onError": "continueRegularOutput"
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT count(*) FROM document_arcs WHERE job_id IN (SELECT job_id FROM job_current);",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          -288,
+          240
+        ],
+        "id": "f289ba41-e3a6-4643-8e30-f64e05fca6dd",
+        "name": "Количество арок",
+        "credentials": {
+          "postgres": {
+            "id": "iGih4QSBWfmpkdGY",
+            "name": "Postgres account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT count(*) FROM document_chapters WHERE job_id IN (SELECT job_id FROM job_current);",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          -288,
+          448
+        ],
+        "id": "d29a4299-14ac-455a-9935-3fe6a4249139",
+        "name": "Количество глав",
+        "credentials": {
+          "postgres": {
+            "id": "iGih4QSBWfmpkdGY",
+            "name": "Postgres account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "return {\n  message: `\n⚠️ <b>Ошибка обработки</b>\n\n📄 Документ: ${$('Данные document_jobs').first().json.file_name}\n\n❌ <b>Ошибка:</b> \n${$('Данные document_jobs').first().json.error_text}\n\n🔁 Повторная попытка через 30 секунд...\n\n<i>Сообщение сгенерировано автоматически.</i>\n  `,\n  type: 'create',\n  button: {}\n} "
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          480,
+          352
+        ],
+        "id": "f53aa209-356a-4fdd-b495-cf859e23fb68",
+        "name": "Сообщение Ошибка в процессе"
+      },
+      {
+        "parameters": {
+          "jsCode": "const RUBLE_EXCHANGE_RATE = 79;\n\nconst billing_polza = Number($('Данные document_jobs').first().json.billing_polza) - Number($('Billing Polza.ai').first().json.amount);\nconst billing_neuro = -(Number($('Данные document_jobs').first().json.billing_neuro) - Number($('Billing Neuro').first().json.total_usage)) / 100;\n\nconst startedAtMs = DateTime.fromISO($('Данные document_jobs').first().json.created_at);\nconst diff = startedAtMs.diffNow().negate().toFormat(\"hh':'mm':'ss\")\n\nconst done = Number($('Количество законченных чанков').first().json.chunks_done);\nconst total = Number($('Общее количество чанков').first().json.chunks_total);\n// const done = Math.floor(Math.random() * total);\nconst ratio = Math.min(1, Math.max(0, done / total));\n\nconst startedAt = startedAtMs.toFormat(\"dd.MM.yyyy HH:mm:ss\");\n\nconst width =20;\nconst filled = Math.round(ratio * width);\nconst bar = '█'.repeat(filled) + '░'.repeat(width - filled);\n\nreturn {\n  message: `\n🚨 <b>Перевод остановлен</b>\n\n📄 Документ: ${$('Данные document_jobs').first().json.file_name}\n\n⛔ Обработка приостановлена.\n      Для повтора нажми на кнопку )\n\n`,\n  type: 'delete',\n  button: {\n    name: '🔁 Повторить',\n    callbackData: 'repeat_translate',\n  }\n} "
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          480,
+          -64
+        ],
+        "id": "eb3d2edd-ce7a-46ee-b55e-2ec939357afa",
+        "name": "Сообщение Перевод остановлен"
+      },
+      {
+        "parameters": {
+          "url": "https://api.telegram.org/bot8591497428:AAEbVnPaXYe2E-WI2ni2cCuSGnmgS5sckR0/getUpdates",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [
+          2224,
+          -304
+        ],
+        "id": "800dae36-b53e-4ca9-9f38-9deb6ff776b4",
+        "name": "Опрос входящих в Telegram"
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "UPDATE telegram_message SET delete_id = {{ $('Send a text message with Keyboard').first().json.result.message_id }} WHERE chat_id = {{ $('Loop Over Items').first().json.telegram_chats.id }}",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          2640,
+          368
+        ],
+        "id": "2cc7be79-25dd-448a-b9c2-85506f91771e",
+        "name": "Сохранение id для удаления сообщения",
+        "credentials": {
+          "postgres": {
+            "id": "iGih4QSBWfmpkdGY",
+            "name": "Postgres account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "0b4f8857-12e6-4790-9e12-f1ec168902b2",
+                "leftValue": "={{ $('Merge').first().json.type }}",
+                "rightValue": "delete",
+                "operator": {
+                  "type": "string",
+                  "operation": "notEquals"
+                }
+              },
+              {
+                "id": "56cf70e4-b547-493c-8d3a-7393483e3deb",
+                "leftValue": "=",
+                "rightValue": "",
+                "operator": {
+                  "type": "string",
+                  "operation": "empty",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          2400,
+          352
+        ],
+        "id": "9ecbbe1f-5955-4169-8f1e-5a04812bf578",
+        "name": "Type = delete?"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "0b4f8857-12e6-4790-9e12-f1ec168902b2",
+                "leftValue": "={{ $('Merge').first().json.type }}",
+                "rightValue": "delete",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals"
+                }
+              },
+              {
+                "id": "56cf70e4-b547-493c-8d3a-7393483e3deb",
+                "leftValue": "=",
+                "rightValue": "",
+                "operator": {
+                  "type": "string",
+                  "operation": "empty",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          1824,
+          -288
+        ],
+        "id": "4096fe99-d08c-4668-a2a9-f5b3e040ab06",
+        "name": "Удалить сообщения?"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "c390f2c7-b96c-4902-9e65-f786c2a38bff",
+                "leftValue": "={{ $json.wait }}",
+                "rightValue": true,
+                "operator": {
+                  "type": "boolean",
+                  "operation": "equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          2576,
+          -304
+        ],
+        "id": "bee162bf-b48e-47f5-9753-f86161df7e69",
+        "name": "Ожидаем?"
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT * FROM telegram_chats c, telegram_message m WHERE c.id = m.chat_id ;",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          2800,
+          -288
+        ],
+        "id": "deb2e041-347e-4fb8-820a-56f88a4d3cb5",
+        "name": "Список всех доступных чатов",
+        "executeOnce": true,
+        "alwaysOutputData": true,
+        "retryOnFail": true,
+        "credentials": {
+          "postgres": {
+            "id": "iGih4QSBWfmpkdGY",
+            "name": "Postgres account"
+          }
+        }
+      },
+      {
+        "parameters": {},
+        "type": "n8n-nodes-base.noOp",
+        "name": "Replace Me1",
+        "typeVersion": 1,
+        "position": [
+          3424,
+          -272
+        ],
+        "id": "5b3147c0-1258-458e-b99a-5d3fe8a98549"
+      },
+      {
+        "parameters": {
+          "options": {}
+        },
+        "type": "n8n-nodes-base.splitInBatches",
+        "typeVersion": 3,
+        "position": [
+          3008,
+          -288
+        ],
+        "id": "93ca01dd-9968-475f-a160-a275daba51db",
+        "name": "Цикл для удаления сообщений"
+      },
+      {
+        "parameters": {},
+        "type": "n8n-nodes-base.wait",
+        "typeVersion": 1.1,
+        "position": [
+          2048,
+          -304
+        ],
+        "id": "e37e98f0-4111-4c75-aa73-56e052fcf260",
+        "name": "Ждем 5 сек",
+        "webhookId": "0fa877c2-b246-4bdd-89a5-114a3c654b86"
+      },
+      {
+        "parameters": {
+          "jsCode": "let wait = true;\nconst response = $input.first().json;\nconst delete_id = $('Send a text message with Keyboard').first().json.result.message_id;\nif (!response.ok) return { wait };\nif (!response.result.length) return { wait };\n\nconst message = response.result.find(item => item.callback_query.message. \nmessage_id === delete_id);\nif (!message) return { wait };\n\nconst callbackData = message?.callback_query?.data;\n\nreturn { wait: callbackData !== 'repeat_translate', delete_id }"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2400,
+          -304
+        ],
+        "id": "0ce4edad-a601-4914-82d9-024c8b309a4c",
+        "name": "Определяем возможность продолжения"
+      },
+      {
+        "parameters": {
+          "operation": "deleteMessage",
+          "chatId": "={{ $json.chat }}",
+          "messageId": "={{ $json.delete_id }}"
+        },
+        "type": "n8n-nodes-base.telegram",
+        "typeVersion": 1.2,
+        "position": [
+          3232,
+          -272
+        ],
+        "id": "1b4ce88f-cc5a-414b-a7ae-67a05a9f0c62",
+        "name": "Удаляем сообщение",
+        "webhookId": "c91ba493-e55a-4cf0-aefc-04a97b79f94e",
+        "credentials": {
+          "telegramApi": {
+            "id": "V4jPr27PQcfRRHY9",
+            "name": "Telegram account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "operation": "editMessageText",
+          "chatId": "={{ $('Loop Over Items').first().json.telegram_chats.chat }}",
+          "messageId": "={{ $('данные по чатам').first().json.message_id }}",
+          "text": "={{ $('Merge').first().json.message }}",
+          "additionalFields": {
+            "parse_mode": "HTML"
+          }
+        },
+        "type": "n8n-nodes-base.telegram",
+        "typeVersion": 1.2,
+        "position": [
+          2224,
+          -64
+        ],
+        "id": "3306796a-aac1-4025-a896-480387f59d28",
+        "name": "Редактируем текст сообщения",
+        "webhookId": "ee3317ee-e386-4133-8122-dcb431c6fcfc",
+        "credentials": {
+          "telegramApi": {
+            "id": "V4jPr27PQcfRRHY9",
+            "name": "Telegram account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "0b4f8857-12e6-4790-9e12-f1ec168902b2",
+                "leftValue": "={{ $('Merge').first().json.type }}",
+                "rightValue": "edit",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals"
+                }
+              },
+              {
+                "id": "56cf70e4-b547-493c-8d3a-7393483e3deb",
+                "leftValue": "=",
+                "rightValue": "",
+                "operator": {
+                  "type": "string",
+                  "operation": "empty",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          3072,
+          80
+        ],
+        "id": "b02f8e59-966f-436e-9bb1-0c4d58e8d171",
+        "name": "Type edit?"
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "UPDATE document_jobs SET status = 'resume'  WHERE id IN (SELECT job_id FROM job_current);",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          3344,
+          -464
+        ],
+        "id": "25adab2d-fcf7-43c8-baf5-551196a2563e",
+        "name": "Возобновление перевода",
+        "credentials": {
+          "postgres": {
+            "id": "iGih4QSBWfmpkdGY",
+            "name": "Postgres account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "conditions": {

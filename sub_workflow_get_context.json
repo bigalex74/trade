@@ -1,0 +1,44 @@
+[
+  {
+    "id": "sub_get_context",
+    "name": "Send Message - Get Context",
+    "nodes": [
+      {
+        "parameters": {},
+        "id": "trigger",
+        "name": "When Executed by Another Workflow",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1,
+        "position": [0, 0]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT \n  j.id as job_id,\n  j.file_name,\n  j.translated_file,\n  j.billing_polza,\n  j.billing_neuro,\n  j.created_at,\n  j.finished_at,\n  (SELECT COUNT(*) FROM document_chunks WHERE job_id = j.id) as chunks_total,\n  (SELECT COUNT(*) FROM document_chunks WHERE job_id = j.id AND status = 'done') as chunks_done\nFROM document_jobs j\nJOIN job_current jc ON j.id = jc.job_id\nLIMIT 1;",
+          "options": {}
+        },
+        "id": "get_context",
+        "name": "Get Job Context",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [250, 0],
+        "alwaysOutputData": true,
+        "credentials": {
+          "postgres": {
+            "id": "iGih4QSBWfmpkdGY",
+            "name": "Postgres account"
+          }
+        }
+      }
+    ],
+    "connections": {
+      "When Executed by Another Workflow": {
+        "main": [[{ "node": "Get Job Context", "type": "main", "index": 0 }]]
+      }
+    },
+    "active": true,
+    "settings": {
+      "executionOrder": "v1"
+    }
+  }
+]

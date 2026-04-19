@@ -1,0 +1,120 @@
+{
+  "id": "rKTWa4ZzlQ2xepEH", "name": "System - Novel Pipeline Test",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "t1-trigger-uuid",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [200, 200]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO document_jobs (file_name, status, billing_polza) VALUES ('TEST_FILE.txt', 'pending', 0) RETURNING id;",
+        "options": {}
+      },
+      "id": "t2-setup-db",
+      "name": "Setup: Create Test Job",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [420, 200],
+      "credentials": {
+        "postgres": { "id": "iGih4QSBWfmpkdGY", "name": "Postgres account" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO telegram_send_message (job_id, type, template, chat_id) VALUES ({{ $json.id }}, 'create_job', 'new_job', '923741104');",
+        "options": {}
+      },
+      "id": "t3-trigger-main",
+      "name": "Trigger: Main Workflow",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [640, 200],
+      "credentials": {
+        "postgres": { "id": "iGih4QSBWfmpkdGY", "name": "Postgres account" }
+      }
+    },
+    {
+      "parameters": { "amount": 15, "unit": "seconds" },
+      "id": "t4-wait",
+      "name": "Wait for Processing",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [860, 200]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT status FROM document_jobs WHERE file_name = 'TEST_FILE.txt' ORDER BY id DESC LIMIT 1;",
+        "options": {}
+      },
+      "id": "t5-validate",
+      "name": "Validate Result",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1080, 200],
+      "credentials": {
+        "postgres": { "id": "iGih4QSBWfmpkdGY", "name": "Postgres account" }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            { "value1": "={{ $json.status }}", "value2": "pending" }
+          ]
+        }
+      },
+      "id": "t6-check",
+      "name": "Is Working?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1300, 200]
+    },
+    {
+      "parameters": {
+        "chatId": "923741104",
+        "text": "=✅ <b>Pipeline Test: SUCCESS</b>\n\nВоркфлоу корректно реагируют на события в БД.\nТестовая запись обработана.",
+        "additionalFields": { "parse_mode": "HTML" }
+      },
+      "id": "t7-notify",
+      "name": "Report: Success",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1520, 100],
+      "credentials": {
+        "telegramApi": { "id": "V4jPr27PQcfRRHY9", "name": "Telegram account" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "DELETE FROM document_jobs WHERE file_name = 'TEST_FILE.txt';",
+        "options": {}
+      },
+      "id": "t8-cleanup",
+      "name": "Cleanup",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1740, 200],
+      "credentials": {
+        "postgres": { "id": "iGih4QSBWfmpkdGY", "name": "Postgres account" }
+      }
+    }
+  ],
+  "connections": {
+    "Manual Trigger": { "main": [[{ "node": "Setup: Create Test Job", "type": "main", "index": 0 }]] },
+    "Setup: Create Test Job": { "main": [[{ "node": "Trigger: Main Workflow", "type": "main", "index": 0 }]] },
+    "Trigger: Main Workflow": { "main": [[{ "node": "Wait for Processing", "type": "main", "index": 0 }]] },
+    "Wait for Processing": { "main": [[{ "node": "Validate Result", "type": "main", "index": 0 }]] },
+    "Validate Result": { "main": [[{ "node": "Is Working?", "type": "main", "index": 0 }]] },
+    "Is Working?": { "main": [[{ "node": "Report: Success", "type": "main", "index": 0 }], [{ "node": "Cleanup", "type": "main", "index": 0 }]] },
+    "Report: Success": { "main": [[{ "node": "Cleanup", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}

@@ -1,0 +1,13 @@
+logs/
+traders/run_*.sh
+.env
+.env.trading
+__pycache__/
+*.pyc
+rag_backup/
+.codex/
+.qwen/
+firecrawl/
+lightrag/
+n8n-backups/
+infisical/

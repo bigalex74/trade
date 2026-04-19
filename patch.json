@@ -1,0 +1,31 @@
+{
+  "nodes_to_add": [
+    {
+      "id": "check-test-mode",
+      "name": "Check Test Mode",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [-4000, 752],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT is_test FROM document_jobs WHERE id = (SELECT job_id FROM document_chunks WHERE id = {{ $json.id_chunk }});",
+        "options": {}
+      },
+      "credentials": { "postgres": { "id": "iGih4QSBWfmpkdGY", "name": "Postgres account" } }
+    },
+    {
+      "id": "test-mode-switch",
+      "name": "Is Test?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [-3800, 752],
+      "parameters": {
+        "rules": {
+          "values": [
+            { "conditions": { "conditions": [{ "leftValue": "={{ $json.is_test }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }] } }
+          ]
+        }
+      }
+    }
+  ]
+}

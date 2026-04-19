@@ -1,0 +1,48 @@
+[
+  {
+    "id": "test_send_message_cli",
+    "name": "[TEST] Send Message CLI",
+    "nodes": [
+      {
+        "parameters": {},
+        "id": "manual_trigger",
+        "name": "Manual Trigger",
+        "type": "n8n-nodes-base.manualTrigger",
+        "typeVersion": 1,
+        "position": [0, 0]
+      },
+      {
+        "parameters": {
+          "command": "docker exec n8n-docker-db-1 psql -U n8n_user -d postgres -c \"INSERT INTO public.telegram_send_message (template, params) VALUES ('create_job', '{}');\""
+        },
+        "id": "insert_test",
+        "name": "Insert Test Message",
+        "type": "n8n-nodes-base.executeCommand",
+        "typeVersion": 1,
+        "position": [220, 0]
+      },
+      {
+        "parameters": {
+          "jsCode": "return { success: true, message: 'Test message inserted!' };"
+        },
+        "id": "check_result",
+        "name": "Check Result",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [440, 0]
+      }
+    ],
+    "connections": {
+      "Manual Trigger": {
+        "main": [[{ "node": "Insert Test Message", "type": "main", "index": 0 }]]
+      },
+      "Insert Test Message": {
+        "main": [[{ "node": "Check Result", "type": "main", "index": 0 }]]
+      }
+    },
+    "active": false,
+    "settings": {
+      "executionOrder": "v1"
+    }
+  }
+]
