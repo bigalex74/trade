@@ -14,7 +14,7 @@ DB_CONFIG = {
 def get_db_connection(): return psycopg2.connect(**DB_CONFIG)
 
 def call_ai(prompt):
-    cmd = ["gemini", "-p", prompt, "--model", "gemini-1.5-pro", "--output-format", "json", "--approval-mode", "yolo"]
+    cmd = ["gemini", "-p", prompt, "--model", "gemini-3.1-pro-preview", "--output-format", "json", "--approval-mode", "yolo"]
     try:
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         if res.returncode == 0:

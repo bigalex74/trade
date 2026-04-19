@@ -38,17 +38,17 @@ TRADERS_DATA = {
 
 # LOAD BALANCING CONFIG
 TRADER_MODELS = {
-    "VSA_Victor": ["gemini-1.5-pro", "gemini-1.5-flash"],
-    "Chaos_Bill": ["gemini-1.5-pro", "gemini-1.5-flash"],
-    "Elliott_Alex": ["gemini-1.5-pro", "gemini-1.5-flash"],
-    "Quant_Diana": ["gemini-1.5-flash", "gemini-1.5-pro"],
-    "PriceAction_Nikita": ["gemini-1.5-flash", "gemini-1.5-pro"],
-    "Contrarian_Ricardo": ["gemini-1.5-flash", "gemini-1.5-pro"],
-    "Passive_Palych": ["ollama/llama3.2", "gemini-1.5-flash"],
-    "Value_Monya": ["ollama/llama3.2", "gemini-1.5-flash"],
-    "Index_Tracker": ["ollama/llama3.2", "gemini-1.5-flash"],
-    "Scalper_Kesha": ["gemini-1.5-flash", "ollama/llama3.2"],
-    "Meta_Oracle": ["gemini-1.5-pro", "gemini-1.5-flash"]
+    "VSA_Victor": ["gemini-3.1-pro-preview", "gemini-3-flash-preview"],
+    "Chaos_Bill": ["gemini-3.1-pro-preview", "gemini-3-flash-preview"],
+    "Elliott_Alex": ["gemini-3.1-pro-preview", "gemini-3-flash-preview"],
+    "Quant_Diana": ["gemini-3-flash-preview", "gemini-3.1-pro-preview"],
+    "PriceAction_Nikita": ["gemini-3-flash-preview", "gemini-3.1-pro-preview"],
+    "Contrarian_Ricardo": ["gemini-3-flash-preview", "gemini-3.1-pro-preview"],
+    "Passive_Palych": ["ollama/llama3.2", "gemini-3-flash-preview"],
+    "Value_Monya": ["ollama/llama3.2", "gemini-3-flash-preview"],
+    "Index_Tracker": ["ollama/llama3.2", "gemini-3-flash-preview"],
+    "Scalper_Kesha": ["gemini-3-flash-preview", "ollama/llama3.2"],
+    "Meta_Oracle": ["gemini-3.1-pro-preview", "gemini-3-flash-preview"]
 }
 
 TRADE_VERB_LABELS = {
