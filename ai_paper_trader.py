@@ -37,22 +37,7 @@ TRADERS_DATA = {
 }
 
 # LOAD BALANCING CONFIG
-# Все агенты имеют равные условия: сначала самая умная модель, затем быстрая, и только при полном отказе облака - локальная Ollama.
-EQUAL_MODELS = ["gemini-3.1-pro-preview", "gemini-3-flash-preview", "ollama/llama3.2"]
-
-TRADER_MODELS = {
-    "VSA_Victor": EQUAL_MODELS,
-    "Chaos_Bill": EQUAL_MODELS,
-    "Elliott_Alex": EQUAL_MODELS,
-    "Quant_Diana": EQUAL_MODELS,
-    "PriceAction_Nikita": EQUAL_MODELS,
-    "Contrarian_Ricardo": EQUAL_MODELS,
-    "Passive_Palych": EQUAL_MODELS,
-    "Value_Monya": EQUAL_MODELS,
-    "Index_Tracker": EQUAL_MODELS,
-    "Scalper_Kesha": EQUAL_MODELS,
-    "Meta_Oracle": EQUAL_MODELS
-}
+# Все агенты имеют равные условия: сначала пробуются все модели из рейтинга, затем локальная Ollama.
 
 TRADE_VERB_LABELS = {
     "buy": "купил",
@@ -138,7 +123,12 @@ def is_capacity_error(stdout, stderr):
     return any(x in output.lower() for x in ["capacity", "overloaded", "quota", "exhausted", "429"])
 
 def call_ai_with_fallback(prompt, models_rank, trader_name=None):
-    preferred_models = TRADER_MODELS.get(trader_name, [m['id'] for m in models_rank])
+    # Динамически загружаем все доступные модели из рейтинга
+    preferred_models = [m['id'] for m in models_rank]
+    # Всегда добавляем локальную Ollama как самый последний резерв
+    if "ollama/llama3.2" not in preferred_models:
+        preferred_models.append("ollama/llama3.2")
+
     for index, model_id in enumerate(preferred_models):
         next_model = preferred_models[index + 1] if index + 1 < len(preferred_models) else None
         
