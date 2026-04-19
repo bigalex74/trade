@@ -366,14 +366,32 @@ def main():
     filtered_market = {ticker: compact_context_payload(stock_context[ticker]) for ticker in sorted(relevant_ids) if ticker in stock_context}
     cur.execute("SELECT secid, score, summary FROM analytics.market_sentiment")
     sentiment_data = {r[0]: {"score": float(r[1]), "summary": r[2]} for r in cur.fetchall()}
+
+    total_stocks = 0; above_sma50 = 0
     for secid, data in sentiment_data.items():
         if secid in filtered_market:
             filtered_market[secid]["sentiment"] = data
         if secid in snapshots:
             snapshots[secid]["sentiment"] = data
 
+    # Расчет режима рынка
+    for sec, data in snapshots.items():
+        if sec in ['USD000UTSTOM', 'BRENT', 'GLDRUB_TOM', 'NGH6']: continue
+        inds = data.get("indicators", {})
+        price = data.get("price")
+        if inds and price and inds.get("SMA_50"):
+            total_stocks += 1
+            if price > inds.get("SMA_50"): above_sma50 += 1
+
+    market_breadth = (above_sma50 / total_stocks) * 100 if total_stocks else 50.0
+    if market_breadth < 30.0: market_regime = "BEAR MARKET (Favorable for Shorting)"
+    elif market_breadth > 70.0: market_regime = "BULL MARKET (Favorable for Longs)"
+    else: market_regime = "SIDEWAYS / MIXED MARKET"
+
     cur.close(); conn.close()
+
     EXPERT_GUIDES = {
+
         "VSA_Victor": "Focus on volume/price spread. Check if price is at Donchian Channel extremes with high volume (Climax).",
         "Chaos_Bill": "Priority: Williams Alligator (AL_JAW/TEETH/LIPS) and Fractals. Buy ONLY if price is above the teeth and a fresh fractal_up appears.",
         "Elliott_Alex": "Identify wave structures. Use RSI and MACD to find momentum exhaustion (Wave 5) or trend start.",
@@ -388,6 +406,7 @@ def main():
     }
     prompt_parts = [
         f"Act as {name}. DNA: {TRADERS_DATA[name]['strategy']}. Traits: {traits}. Cash: {cash}.",
+        f"MARKET REGIME: {market_regime} ({market_breadth:.1f}% stocks > SMA50). Adjust actions accordingly.",
         f"Portfolio (with PnL): {json.dumps(positions)}.", f"Recent History: {'; '.join(recent_history)}.",
         f"Macro: {json.dumps(compact_context_payload(market_context.get('USD000UTSTOM')))}.",
         f"MARKET DATA: {json.dumps(filtered_market)}.",
