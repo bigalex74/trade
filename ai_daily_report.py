@@ -137,6 +137,30 @@ def generate_report():
         
         lessons_list.append(f"👤 <b>{html.escape(name)}</b> ({profit_pct:+.2f}%)\n{html.escape(report_text)}")
 
+    # --- DYNAMIC ALLOCATION (Capitalism) ---
+    stats_sorted = sorted(league_stats, key=lambda x: x['pct'], reverse=True)
+    top_3 = [s for s in stats_sorted[:3] if s['pct'] > 0]
+    losers = [s for s in stats_sorted if s['pct'] < 0]
+    
+    bonus_pool = 0.0
+    reallocation_notes = []
+    
+    if top_3 and losers:
+        for loser in losers:
+            cur.execute("SELECT cash_balance FROM trading.portfolio WHERE trader_name = %s", (loser['name'],))
+            loser_cash = float(cur.fetchone()[0])
+            if loser_cash > 100: # Минимальный порог свободного кеша
+                penalty = loser_cash * 0.05 # Забираем 5% свободного кэша у лузера
+                cur.execute("UPDATE trading.portfolio SET cash_balance = cash_balance - %s WHERE trader_name = %s", (penalty, loser['name']))
+                bonus_pool += penalty
+                reallocation_notes.append(f"🔻 Изъято {penalty:,.0f} ₽ у {loser['name']}")
+                
+        if bonus_pool > 0:
+            bonus_per_leader = bonus_pool / len(top_3)
+            for leader in top_3:
+                cur.execute("UPDATE trading.portfolio SET cash_balance = cash_balance + %s WHERE trader_name = %s", (bonus_per_leader, leader['name']))
+                reallocation_notes.append(f"🏆 Бонус {bonus_per_leader:,.0f} ₽ для {leader['name']}")
+
     conn.commit() # Фиксируем все изменения памяти
     total_equity = sum(s['equity'] for s in league_stats)
     total_sod = sum(s['sod'] for s in league_stats)
@@ -151,7 +175,17 @@ def generate_report():
         f"🔄 Сделок: <b>{total_trades}</b>"
     )
     
-    send_telegram_package(caption, "\n\n".join(lessons_list), chart_bytes)
+    alloc_str = ""
+    if reallocation_notes:
+        alloc_str = "\n\n⚖️ <b>АЛЛОКАЦИЯ КАПИТАЛА</b>\n" + "\n".join(reallocation_notes)
+    
+    lessons_message = (
+        f"📋 <b>ИТОГИ И ТЮНИНГ АГЕНТОВ</b>\n"
+        f"⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n\n"
+        f"{chr(10).join(lessons_list)}{alloc_str}"
+    )
+    
+    send_telegram_package(caption, lessons_message, chart_bytes)
     cur.close(); conn.close()
 
 if __name__ == "__main__":
