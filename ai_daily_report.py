@@ -131,8 +131,13 @@ def generate_report():
         trades = [{"secid": r[0], "act": r[1], "qty": r[2], "pr": float(r[3]), "rs": r[4]} for r in cur.fetchall()]
         
         report_text = generate_individual_lessons(name, trades)
+        
+        # СОХРАНЕНИЕ ЭВОЛЮЦИИ: Обновляем ДНК трейдера
+        cur.execute("UPDATE trading.trader_config SET learned_traits = %s, updated_at = NOW() WHERE trader_name = %s", (report_text, name))
+        
         lessons_list.append(f"👤 <b>{html.escape(name)}</b> ({profit_pct:+.2f}%)\n{html.escape(report_text)}")
 
+    conn.commit() # Фиксируем все изменения памяти
     total_equity = sum(s['equity'] for s in league_stats)
     total_sod = sum(s['sod'] for s in league_stats)
     total_pct = ((total_equity / total_sod) - 1) * 100 if total_sod else 0.0
