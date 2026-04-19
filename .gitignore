@@ -11,3 +11,5 @@ firecrawl/
 lightrag/
 n8n-backups/
 infisical/
+telegram-apps/tests/node_modules/
+telegram-apps/tests/test-results/
