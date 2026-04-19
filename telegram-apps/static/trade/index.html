@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>MOEX AI LEAGUE</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: var(--tg-theme-bg-color, #1a1a1a); color: var(--tg-theme-text-color, #ffffff); }
+        .card { background-color: var(--tg-theme-secondary-bg-color, #2d2d2d); border-radius: 12px; }
+        .accent { color: var(--tg-theme-button-color, #3b82f6); }
+        .success { color: #10b981; }
+        .error { color: #ef4444; }
+    </style>
+</head>
+<body class="p-4 font-sans overflow-x-hidden">
+
+    <!-- HEADER: LEAGUE TOTALS -->
+    <div class="card p-6 mb-6 text-center shadow-lg border border-blue-500/20">
+        <h1 class="text-xs uppercase tracking-widest text-gray-400 mb-1">Общий капитал Лиги</h1>
+        <div id="total-equity" class="text-3xl font-bold mb-1">загрузка...</div>
+        <div id="total-pnl" class="text-sm font-medium">--</div>
+    </div>
+
+    <!-- MAIN DASHBOARD -->
+    <div class="mb-8">
+        <h2 class="text-sm font-bold uppercase text-gray-500 mb-4 tracking-wider">AI Трейдеры (10)</h2>
+        <div id="traders-grid" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <!-- Trader cards injected here -->
+        </div>
+    </div>
+
+    <!-- RECENT JOURNAL -->
+    <div class="mb-20">
+        <h2 class="text-sm font-bold uppercase text-gray-500 mb-4 tracking-wider">Последние сделки</h2>
+        <div id="journal-list" class="space-y-3">
+            <!-- Journal items injected here -->
+        </div>
+    </div>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+
+        async function fetchData() {
+            try {
+                const response = await fetch('/api/trade/league');
+                const data = await response.json();
+                renderUI(data);
+            } catch (err) {
+                console.error("Fetch error:", err);
+            }
+        }
+
+        function renderUI(data) {
+            const { traders, positions, journal } = data;
+            
+            // 1. Calculate Totals
+            let totalEquity = 0;
+            traders.forEach(t => {
+                const traderPos = positions.filter(p => p.trader_name === t.trader_name);
+                // Для простоты здесь используем avg_entry_price как текущую, 
+                // в реальном бэкенде мы можем добавить расчет рыночной стоимости.
+                const posValue = traderPos.reduce((sum, p) => sum + (p.quantity * p.avg_entry_price), 0);
+                totalEquity += (parseFloat(t.cash_balance) + posValue);
+            });
+
+            document.getElementById('total-equity').innerText = `${totalEquity.toLocaleString('ru-RU')} ₽`;
+            
+            // 2. Render Traders
+            const grid = document.getElementById('traders-grid');
+            grid.innerHTML = '';
+            traders.forEach(t => {
+                const traderPos = positions.filter(p => p.trader_name === t.trader_name);
+                const posStr = traderPos.map(p => `${p.secid} x${p.quantity}`).join(', ') || 'Нет позиций';
+                
+                const card = document.createElement('div');
+                card.className = 'card p-4 border border-white/5';
+                card.innerHTML = `
+                    <div class="flex justify-between items-start mb-2">
+                        <span class="font-bold text-blue-400">${t.trader_name}</span>
+                        <span class="text-xs text-gray-400">${parseFloat(t.cash_balance).toLocaleString()} ₽ (cash)</span>
+                    </div>
+                    <div class="text-sm text-gray-200 mb-3">${posStr}</div>
+                    <div class="text-[10px] text-gray-500 italic border-t border-white/5 pt-2">
+                        ${t.memory || 'Анализирует рынок...'}
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+
+            // 3. Render Journal
+            const journalList = document.getElementById('journal-list');
+            journalList.innerHTML = '';
+            journal.forEach(j => {
+                const item = document.createElement('div');
+                item.className = 'card p-3 flex justify-between items-center text-sm border-l-4 ' + 
+                                (j.action === 'BUY' ? 'border-green-500' : 'border-red-500');
+                
+                const date = new Date(j.created_at).toLocaleTimeString('ru-RU', {hour: '2-digit', minute:'2-digit'});
+                
+                item.innerHTML = `
+                    <div>
+                        <span class="font-bold mr-2">${j.secid}</span>
+                        <span class="${j.action === 'BUY' ? 'success' : 'error'} font-medium">${j.action} x${j.quantity}</span>
+                        <div class="text-[10px] text-gray-500">${j.trader_name} @ ${j.price}</div>
+                    </div>
+                    <div class="text-gray-400 text-xs">${date}</div>
+                `;
+                journalList.appendChild(item);
+            });
+        }
+
+        fetchData();
+        setInterval(fetchData, 30000); // 30 sec refresh
+    </script>
+</body>
+</html>

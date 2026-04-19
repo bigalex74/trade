@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Удаление файлов</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        :root { --tg-theme-bg-color: #f0f2f5; --tg-theme-secondary-bg-color: #ffffff; --tg-theme-text-color: #222; --tg-theme-button-color: #3390ec; }
+        body { font-family: -apple-system, sans-serif; padding: 16px; background: var(--tg-theme-bg-color); color: var(--tg-theme-text-color); margin: 0; }
+        .header { text-align: center; margin-bottom: 24px; }
+        .app-card { display: flex; align-items: center; background: var(--tg-theme-secondary-bg-color); padding: 16px; border-radius: 14px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); text-decoration: none; color: inherit; }
+        .app-icon { font-size: 32px; margin-right: 16px; }
+        .app-title { font-weight: 600; font-size: 16px; display: block; }
+        .app-desc { font-size: 13px; color: #888; }
+        .back-btn { display: block; text-align: center; width: 100%; padding: 14px; border-radius: 12px; border: none; background: #6c757d; color: white; font-size: 16px; font-weight: 600; cursor: pointer; margin-top: 20px; text-decoration: none; box-sizing: border-box; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div style="font-size: 60px; margin-bottom: 10px;">🗑️</div>
+        <h1>Что удаляем?</h1>
+    </div>
+
+    <div class="apps-grid">
+        <a href="/manage?type=ko" class="app-card">
+            <span class="app-icon">📄</span>
+            <div class="app-info">
+                <span class="app-title">Файлы для перевода</span>
+            </div>
+        </a>
+        <a href="/manage?type=xlsx" class="app-card">
+            <span class="app-icon">📖</span>
+            <div class="app-info">
+                <span class="app-title">Глоссарии</span>
+            </div>
+        </a>
+        <a href="/manage?type=ru" class="app-card">
+            <span class="app-icon">🤖</span>
+            <div class="app-info">
+                <span class="app-title">Доп. промпты</span>
+            </div>
+        </a>
+    </div>
+
+    <a href="/" class="back-btn">⬅ Назад</a>
+    
+    <script>
+        let tg = window.Telegram.WebApp;
+        tg.expand();
+    </script>
+</body>
+</html>
