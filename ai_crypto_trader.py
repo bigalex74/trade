@@ -20,7 +20,7 @@ TELEGRAM_CHAT_ID = "923741104"
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 MODEL_RANK_FILE = "/home/user/ai_model_rank.json"
 LOG_FILE = "/home/user/logs/ai_crypto_trader.log"
-INITIAL_CAPITAL = 10000.0
+INITIAL_CAPITAL = 100.0
 
 TRADERS_DATA = {
     "VSA_Victor": {"strategy": "VSA Specialist (Volume Spread Analysis). Look for sign of strength/weakness, climaxes and tests.", "query": "VSA trading methods"},

@@ -1,4 +1,0 @@
-ERROR:  column "data" does not exist
-LINE 1: SELECT data FROM workflow_entity WHERE id = 'GiqH3FrsgKjwIbU...
-               ^
-HINT:  Perhaps you meant to reference the column "workflow_entity.meta".

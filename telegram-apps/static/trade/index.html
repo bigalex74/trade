@@ -16,18 +16,39 @@
 </head>
 <body class="p-4 font-sans overflow-x-hidden">
 
+    <!-- TABS -->
+    <div class="flex space-x-2 mb-6">
+        <button id="tab-moex" onclick="switchDivision('moex')" class="flex-1 py-2 rounded-lg font-bold text-sm bg-blue-600 text-white shadow-lg transition-all">MOEX</button>
+        <button id="tab-crypto" onclick="switchDivision('crypto')" class="flex-1 py-2 rounded-lg font-bold text-sm bg-gray-800 text-gray-400 transition-all">CRYPTO</button>
+    </div>
+
     <!-- HEADER: LEAGUE TOTALS -->
     <div class="card p-6 mb-6 text-center shadow-lg border border-blue-500/20">
         <h1 class="text-xs uppercase tracking-widest text-gray-400 mb-1">Общий капитал Лиги</h1>
         <div id="total-equity" class="text-3xl font-bold mb-1">загрузка...</div>
         <div id="total-pnl" class="text-sm font-medium">--</div>
     </div>
+    
+    <!-- SENTIMENT ORACLE -->
+    <div class="mb-6">
+        <h2 class="text-sm font-bold uppercase text-gray-500 mb-4 tracking-wider">News Sentiment Oracle</h2>
+        <div id="sentiment-list" class="flex overflow-x-auto space-x-3 pb-2 snap-x mb-2"></div>
+        <div id="instruments-list" class="text-[10px] text-gray-600 uppercase tracking-tighter"></div>
+    </div>
 
     <!-- MAIN DASHBOARD -->
     <div class="mb-8">
-        <h2 class="text-sm font-bold uppercase text-gray-500 mb-4 tracking-wider">AI Трейдеры (10)</h2>
+        <h2 id="league-title" class="text-sm font-bold uppercase text-gray-500 mb-4 tracking-wider">AI Трейдеры (MOEX)</h2>
         <div id="traders-grid" class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <!-- Trader cards injected here -->
+        </div>
+    </div>
+
+    <!-- PENDING ORDERS -->
+    <div class="mb-8">
+        <h2 class="text-sm font-bold uppercase text-gray-500 mb-4 tracking-wider">Отложенные Ордера</h2>
+        <div id="orders-list" class="space-y-2">
+            <!-- Orders injected here -->
         </div>
     </div>
 
@@ -42,10 +63,36 @@
     <script>
         const tg = window.Telegram.WebApp;
         tg.expand();
+        let currentDivision = 'moex';
+
+        async function switchDivision(div) {
+            currentDivision = div;
+            // UI Toggle
+            const mBtn = document.getElementById('tab-moex');
+            const cBtn = document.getElementById('tab-crypto');
+            const title = document.getElementById('league-title');
+            
+            if (div === 'moex') {
+                mBtn.className = 'flex-1 py-2 rounded-lg font-bold text-sm bg-blue-600 text-white shadow-lg';
+                cBtn.className = 'flex-1 py-2 rounded-lg font-bold text-sm bg-gray-800 text-gray-400';
+                title.innerText = 'AI Трейдеры (MOEX)';
+            } else {
+                cBtn.className = 'flex-1 py-2 rounded-lg font-bold text-sm bg-orange-500 text-white shadow-lg';
+                mBtn.className = 'flex-1 py-2 rounded-lg font-bold text-sm bg-gray-800 text-gray-400';
+                title.innerText = 'Crypto Агенты (Binance)';
+            }
+            
+            // Мгновенная очистка старых данных, чтобы не путать
+            document.getElementById('traders-grid').innerHTML = '<div class="text-gray-500 p-4">Синхронизация...</div>';
+            document.getElementById('journal-list').innerHTML = '';
+            document.getElementById('total-equity').innerText = '...';
+            
+            fetchData();
+        }
 
         async function fetchData() {
             try {
-                const response = await fetch('/api/trade/league');
+                const response = await fetch(`/api/trade/league?division=${currentDivision}`);
                 const data = await response.json();
                 renderUI(data);
             } catch (err) {
@@ -54,57 +101,80 @@
         }
 
         function renderUI(data) {
-            const { traders, positions, journal } = data;
+            const { traders, positions, journal, orders, sentiment, instruments } = data;
+            const currency = currentDivision === 'moex' ? '₽' : '$';
             
-            // 1. Calculate Totals
+            // Instruments focal list
+            document.getElementById('instruments-list').innerText = 'Фокус: ' + (instruments ? instruments.map(i => i.secid).join(' • ') : 'загрузка...');
+
+            // 1. Totals
             let totalEquity = 0;
             traders.forEach(t => {
                 const traderPos = positions.filter(p => p.trader_name === t.trader_name);
-                // Для простоты здесь используем avg_entry_price как текущую, 
-                // в реальном бэкенде мы можем добавить расчет рыночной стоимости.
-                const posValue = traderPos.reduce((sum, p) => sum + (p.quantity * p.avg_entry_price), 0);
+                const posValue = traderPos.reduce((sum, p) => sum + (Math.abs(p.quantity) * parseFloat(p.avg_entry_price)), 0);
                 totalEquity += (parseFloat(t.cash_balance) + posValue);
             });
-
-            document.getElementById('total-equity').innerText = `${totalEquity.toLocaleString('ru-RU')} ₽`;
+            document.getElementById('total-equity').innerText = `${totalEquity.toLocaleString('ru-RU', {maximumFractionDigits:0})} ${currency}`;
             
-            // 2. Render Traders
+            // Sentiment
+            const sentList = document.getElementById('sentiment-list');
+            sentList.innerHTML = sentiment && sentiment.length > 0 ? sentiment.map(s => {
+                const isGood = parseFloat(s.score) > 0;
+                return `<div class="card shrink-0 p-2 text-xs border ${isGood ? 'border-green-500/30' : 'border-red-500/30'}">
+                    <span class="font-bold">${s.secid}</span> <span class="${isGood ? 'text-green-400' : 'text-red-400'}">${s.score}</span>
+                </div>`;
+            }).join('') : '<div class="text-gray-500 text-xs">Нет данных</div>';
+
+            // 2. Traders
             const grid = document.getElementById('traders-grid');
             grid.innerHTML = '';
             traders.forEach(t => {
                 const traderPos = positions.filter(p => p.trader_name === t.trader_name);
-                const posStr = traderPos.map(p => `${p.secid} x${p.quantity}`).join(', ') || 'Нет позиций';
+                const posStr = traderPos.map(p => {
+                    const type = p.quantity > 0 ? 'LONG' : 'SHORT';
+                    return `<span class="${p.quantity>0 ? 'text-green-400' : 'text-red-400'}">${p.secid} x${Math.abs(p.quantity)} (${type})</span>`;
+                }).join(', ') || '<span class="text-gray-500">В кеше</span>';
                 
                 const card = document.createElement('div');
                 card.className = 'card p-4 border border-white/5';
                 card.innerHTML = `
                     <div class="flex justify-between items-start mb-2">
                         <span class="font-bold text-blue-400">${t.trader_name}</span>
-                        <span class="text-xs text-gray-400">${parseFloat(t.cash_balance).toLocaleString()} ₽ (cash)</span>
+                        <span class="text-xs text-gray-400">${parseFloat(t.cash_balance).toLocaleString('ru-RU',{maximumFractionDigits:0})} ${currency}</span>
                     </div>
-                    <div class="text-sm text-gray-200 mb-3">${posStr}</div>
+                    <div class="text-sm mb-3">${posStr}</div>
                     <div class="text-[10px] text-gray-500 italic border-t border-white/5 pt-2">
-                        ${t.memory || 'Анализирует рынок...'}
+                        ${t.memory ? t.memory.replace(/\\n/g, '<br>') : 'Анализирует рынок...'}
                     </div>
                 `;
                 grid.appendChild(card);
             });
+            
+            // Orders
+            const ordList = document.getElementById('orders-list');
+            ordList.innerHTML = orders && orders.length > 0 ? orders.map(o => `
+                <div class="card p-2 px-3 flex justify-between text-xs border-l-2 border-yellow-500">
+                    <span><b>${o.secid}</b> x${o.quantity} (${o.order_type})</span>
+                    <span class="text-yellow-400">@ ${o.target_price} ${currency}</span>
+                </div>
+            `).join('') : '<div class="text-gray-500 text-xs">Нет активных заявок</div>';
 
-            // 3. Render Journal
+            // 3. Journal
             const journalList = document.getElementById('journal-list');
             journalList.innerHTML = '';
             journal.forEach(j => {
                 const item = document.createElement('div');
+                const isBuy = j.action === 'BUY' || j.action === 'COVER';
                 item.className = 'card p-3 flex justify-between items-center text-sm border-l-4 ' + 
-                                (j.action === 'BUY' ? 'border-green-500' : 'border-red-500');
+                                (isBuy ? 'border-green-500' : 'border-red-500');
                 
                 const date = new Date(j.created_at).toLocaleTimeString('ru-RU', {hour: '2-digit', minute:'2-digit'});
                 
                 item.innerHTML = `
                     <div>
                         <span class="font-bold mr-2">${j.secid}</span>
-                        <span class="${j.action === 'BUY' ? 'success' : 'error'} font-medium">${j.action} x${j.quantity}</span>
-                        <div class="text-[10px] text-gray-500">${j.trader_name} @ ${j.price}</div>
+                        <span class="${isBuy ? 'success' : 'error'} font-medium">${j.action} x${j.quantity}</span>
+                        <div class="text-[10px] text-gray-500 mt-1">${j.trader_name} @ ${j.price} ${currency}</div>
                     </div>
                     <div class="text-gray-400 text-xs">${date}</div>
                 `;
@@ -113,7 +183,7 @@
         }
 
         fetchData();
-        setInterval(fetchData, 30000); // 30 sec refresh
+        setInterval(fetchData, 30000);
     </script>
 </body>
 </html>
