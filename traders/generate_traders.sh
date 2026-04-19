@@ -4,7 +4,7 @@
 TRADERS=(
     "VSA_Victor" "Chaos_Bill" "Elliott_Alex" "Contrarian_Ricardo" 
     "Quant_Diana" "PriceAction_Nikita" "Passive_Palych" 
-    "Scalper_Kesha" "Value_Monya" "Index_Tracker"
+    "Scalper_Kesha" "Value_Monya" "Index_Tracker" "Meta_Oracle"
 )
 
 TEMPLATE_DIR="/home/user/traders"

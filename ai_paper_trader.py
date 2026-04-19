@@ -32,7 +32,8 @@ TRADERS_DATA = {
     "Passive_Palych": {"strategy": "Safe Dividend / Index investor. Long term bias.", "query": "Dividend growth investing"},
     "Scalper_Kesha": {"strategy": "Ultra Fast Scalper. High turnover, small targets.", "query": "Intraday scalping techniques"},
     "Value_Monya": {"strategy": "Value Investor. Fundamental bias, ignores noise.", "query": "Value investing metrics"},
-    "Index_Tracker": {"strategy": "Index Mirror. Tracks overall MOEX market moves.", "query": "Index tracking strategy"}
+    "Index_Tracker": {"strategy": "Index Mirror. Tracks overall MOEX market moves.", "query": "Index tracking strategy"},
+    "Meta_Oracle": {"strategy": "Collective Mind. You analyze the actions of the other 10 AI agents. You buy ONLY when multiple independent algorithms buy the same asset.", "query": "Ensemble trading strategies and consensus"}
 }
 
 # LOAD BALANCING CONFIG
@@ -46,7 +47,8 @@ TRADER_MODELS = {
     "Passive_Palych": ["ollama/llama3.2", "gemini-1.5-flash"],
     "Value_Monya": ["ollama/llama3.2", "gemini-1.5-flash"],
     "Index_Tracker": ["ollama/llama3.2", "gemini-1.5-flash"],
-    "Scalper_Kesha": ["gemini-1.5-flash", "ollama/llama3.2"]
+    "Scalper_Kesha": ["gemini-1.5-flash", "ollama/llama3.2"],
+    "Meta_Oracle": ["gemini-1.5-pro", "gemini-1.5-flash"]
 }
 
 TRADE_VERB_LABELS = {
@@ -194,6 +196,10 @@ def execute_trade_actions(trader_name, actions, current_cash, snapshots, model_i
     cur.execute("SELECT SUM(quantity * avg_entry_price) FROM trading.position WHERE trader_name = %s", (trader_name,))
     pos_val = float(cur.fetchone()[0] or 0); equity = current_cash + pos_val
     limit_per_asset = equity * 0.15; risk_per_trade = equity * 0.01 * macro_risk_modifier
+    if trader_name == "Meta_Oracle":
+        limit_per_asset = equity * 0.30
+        risk_per_trade = equity * 0.03 * macro_risk_modifier
+
     limit_per_sector = equity * 0.25 # Не более 25% в одном секторе
 
     for act in actions:
@@ -268,6 +274,13 @@ def main():
     cur.execute("SELECT action, secid, quantity, price, created_at FROM trading.journal WHERE trader_name = %s ORDER BY created_at DESC LIMIT 3", (name,))
     recent_history = [f"{r[4].strftime('%H:%M')} {r[0]} {r[1]} x{r[2]} @{r[3]}" for r in cur.fetchall()]
     cur.execute("SELECT learned_traits FROM trading.trader_config WHERE trader_name = %s", (name,)); traits = cur.fetchone()[0]
+
+    # META-ORACLE: Получение списка сделок всей Лиги за последний час
+    league_recent_trades = ""
+    if name == "Meta_Oracle":
+        cur.execute("SELECT trader_name, action, secid, created_at FROM trading.journal WHERE created_at > now() - interval '1 hour' ORDER BY created_at DESC LIMIT 20")
+        league_recent_trades = " | ".join([f"[{r[3].strftime('%H:%M')}] {r[0]} {r[1]} {r[2]}" for r in cur.fetchall()])
+
     cur.close(); conn.close()
 
     filtered_market = {ticker: compact_context_payload(stock_context[ticker]) for ticker in sorted(relevant_ids) if ticker in stock_context}
@@ -281,7 +294,8 @@ def main():
         "Passive_Palych": "Analyze long-term EMA/SMA 200 and Dividend consistency. Use ATR for volatility-adjusted position sizing.",
         "Scalper_Kesha": "High-frequency focus. Use 5m windows, Parabolic SAR, and RSI extremes. Exit quickly if CK_STOP is hit.",
         "Value_Monya": "Fundamental value vs current price. Use long-term indicators (Yearly window) and SMA 200.",
-        "Index_Tracker": "Mirror market moves. Focus on Macro indicators (USD, Gold, Oil) and their correlation with stocks."
+        "Index_Tracker": "Mirror market moves. Focus on Macro indicators (USD, Gold, Oil) and their correlation with stocks.",
+        "Meta_Oracle": "Collective Mind. You analyze the recent trades of the other 10 AI agents (LEAGUE TRADES). You buy ONLY when multiple independent algorithms buy the same asset. You use 3x position sizing."
     }
     prompt_parts = [
         f"Act as {name}. DNA: {TRADERS_DATA[name]['strategy']}. Traits: {traits}. Cash: {cash}.",
@@ -289,6 +303,7 @@ def main():
         f"Macro: {json.dumps(compact_context_payload(market_context.get('USD000UTSTOM')))}.",
         f"MARKET DATA: {json.dumps(filtered_market)}.",
         f"STRATEGIC GUIDELINE: {EXPERT_GUIDES.get(name, 'Use all indicators to maximize profit.')}",
+        f"LEAGUE TRADES (For Oracle): {league_recent_trades}" if name == "Meta_Oracle" else "",
         "TECHNICAL MANUAL: - Alligator: Jaw(Blue), Teeth(Red), Lips(Green). Open mouth = trend. - CK_STOP: Chande Kroll Stop for exits. PSAR: Parabolic SAR for trend. - TSI: True Strength Index. RVI: Relative Vigor Index. CHOP: >61 means sideways market.",
         f"1. Query 'lightrag-algo' for '{TRADERS_DATA[name]['query']}'. 2. Respond ONLY raw JSON object with keys: summary, market_bias, confidence, actions, risk_notes."
     ]
