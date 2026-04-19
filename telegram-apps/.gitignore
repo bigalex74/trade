@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+.venv
+
+# Docker
+.docker/
+docker-compose.yml-clean.txt
+
+# DB & Secrets
+*.sqlite
+*.sql
+pgpass
+credentials_migration.json
+
+# Logs & Temp
+*.log
+*.tmp
+temp.docx
+.cache/
+
+# OS
+.DS_Store
+.vscode/
+.idea/

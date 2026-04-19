@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>bigalexn8n Apps</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        :root { --tg-theme-bg-color: #f0f2f5; --tg-theme-secondary-bg-color: #ffffff; --tg-theme-text-color: #222; --tg-theme-button-color: #3390ec; }
+        body { background-color: var(--tg-theme-bg-color); color: var(--tg-theme-text-color); font-family: -apple-system, sans-serif; margin: 0; padding: 16px; }
+        .header { text-align: center; margin-bottom: 24px; }
+        .app-card { display: flex; align-items: center; background: var(--tg-theme-secondary-bg-color); padding: 16px; border-radius: 14px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); text-decoration: none; color: inherit; }
+        .app-icon { font-size: 32px; margin-right: 16px; }
+        .app-title { font-weight: 600; font-size: 16px; display: block; }
+        .app-desc { font-size: 13px; color: #888; }
+        .btn-cancel { width: 100%; padding: 14px; border-radius: 12px; border: none; background-color: #ff3b30; color: white; font-size: 16px; font-weight: 600; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div style="font-size: 60px; margin-bottom: 10px;">📚</div>
+        <h1>Панель управления</h1>
+    </div>
+
+    <div class="apps-grid">
+        <a href="/files" class="app-card" id="link-files">
+            <span class="app-icon">📁</span>
+            <div class="app-info">
+                <span class="app-title">Новый перевод</span>
+                <span class="app-desc">Запустить перевод из списка</span>
+            </div>
+        </a>
+
+        <a href="/manage-menu" class="app-card">
+            <span class="app-icon">🗑️</span>
+            <div class="app-info">
+                <span class="app-title">Удаление файлов</span>
+                <span class="app-desc">Деактивация файлов, глоссариев, промптов</span>
+            </div>
+        </a>
+
+        <a href="/prompts" class="app-card">
+            <span class="app-icon">🤖</span>
+            <div class="app-info">
+                <span class="app-title">Управление промптами</span>
+                <span class="app-desc">Создание и редактирование промптов</span>
+            </div>
+        </a>
+    </div>
+
+    <div style="margin-top: 40px; padding: 0 16px;">
+        <button class="btn-cancel" onclick="window.Telegram.WebApp.close()" style="width: 100%; padding: 14px; border-radius: 12px; border: none; background-color: #6c757d; color: white; font-size: 16px; font-weight: 600; cursor: pointer;">🚪 Выход</button>
+    </div>
+
+    <script>
+        let tg = window.Telegram.WebApp;
+        tg.expand();
+        const chat_id = tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : 0;
+        document.getElementById('link-files').href = `/files?chat_id=${chat_id}`;
+    </script>
+</body>
+</html>
