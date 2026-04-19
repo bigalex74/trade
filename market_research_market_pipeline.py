@@ -700,10 +700,14 @@ def calculate_technical_indicators(df):
         df.ta.chop(length=14, append=True) # Choppiness Index
         df.ta.psar(af=0.02, max_af=0.2, append=True) # Parabolic SAR
 
-        # 5. Средние (MA, EMA, WMA)
+        # 5. Средние (MA, EMA, WMA, VWAP)
         df.ta.sma(length=20, append=True)
+        df.ta.sma(length=50, append=True)
         df.ta.ema(length=20, append=True)
         df.ta.wma(length=20, append=True) # Weighted Moving Average
+        try:
+            df.ta.vwap(append=True) # Volume Weighted Average Price
+        except: pass
 
         # 6. Ишимоку
         ichimoku, _ = df.ta.ichimoku()

@@ -183,16 +183,32 @@ def execute_trade_actions(trader_name, actions, current_cash, snapshots, model_i
     if not actions: return
     conn = get_db_connection(); cur = conn.cursor()
     
-    # 1. Macro-Hedge (Защита от обвалов рынка)
-    # Проверяем доллар. Если он резко растет (>1.5%), режем риски покупок акций в 2 раза
+    # 1. Macro-Hedge (Защита от обвалов рынка и Market Breadth)
     macro_risk_modifier = 1.0
     usd_data = snapshots.get("USD000UTSTOM", {})
     if usd_data:
         usd_change = usd_data.get("change_pct", 0)
         if usd_change is not None and usd_change > 1.5:
             log_event(f"[{trader_name}] Macro Alert: USD is up {usd_change:.2f}%. Reducing risk per trade.")
-            macro_risk_modifier = 0.5
+            macro_risk_modifier *= 0.5
             
+    # Расчет Market Breadth (% акций выше SMA 50)
+    total_stocks = 0; above_sma50 = 0
+    for sec, data in snapshots.items():
+        if sec in ["USD000UTSTOM", "BRENT", "GLDRUB_TOM", "NGH6"]: continue
+        inds = data.get("indicators", {})
+        if not inds: continue
+        sma50 = inds.get("SMA_50")
+        price = data.get("price")
+        if sma50 and price:
+            total_stocks += 1
+            if price > sma50: above_sma50 += 1
+            
+    market_breadth = (above_sma50 / total_stocks) * 100 if total_stocks else 50.0
+    if market_breadth < 30.0:
+        log_event(f"[{trader_name}] Market Breadth Alert: Only {market_breadth:.1f}% stocks above SMA50. Risk reduced.")
+        macro_risk_modifier *= 0.5
+
     cur.execute("SELECT SUM(quantity * avg_entry_price) FROM trading.position WHERE trader_name = %s", (trader_name,))
     pos_val = float(cur.fetchone()[0] or 0); equity = current_cash + pos_val
     limit_per_asset = equity * 0.15; risk_per_trade = equity * 0.01 * macro_risk_modifier
@@ -207,12 +223,19 @@ def execute_trade_actions(trader_name, actions, current_cash, snapshots, model_i
         ticker_data = snapshots.get(secid, {}); price = ticker_data.get("price"); indicators = ticker_data.get("indicators", {})
         if not price: continue
 
-        cur.execute("SELECT quantity, avg_entry_price FROM trading.position WHERE trader_name = %s AND secid = %s", (trader_name, secid))
+        cur.execute("SELECT quantity, avg_entry_price, created_at FROM trading.position WHERE trader_name = %s AND secid = %s", (trader_name, secid))
         pos_row = cur.fetchone()
         if pos_row and pos_row[0] > 0:
+            created_at = pos_row[2]
+            # Защита 1: CK_STOP
             ck_long = indicators.get("CK_STOP_LONG")
             if ck_long and price < ck_long:
                 action_type = "sell"; reason = f"STOP-LOSS: Price {price} < CK_STOP {ck_long:.2f}"
+            # Защита 2: Time-based Exit (4 часа без прибыли)
+            elif created_at:
+                time_held = (datetime.now(timezone.utc) - created_at).total_seconds() / 3600
+                if time_held > 4.0 and price < float(pos_row[1]):
+                    action_type = "sell"; reason = f"TIME-EXIT: Held {time_held:.1f}h without profit"
 
         if action_type in ["buy", "add"]:
             atr = indicators.get("ATRr_14", price * 0.02)
@@ -240,7 +263,7 @@ def execute_trade_actions(trader_name, actions, current_cash, snapshots, model_i
             new_qty = curr_qty + qty; new_avg = ((curr_qty * curr_avg) + cost) / new_qty
             cur.execute("UPDATE trading.portfolio SET cash_balance = cash_balance - %s WHERE trader_name = %s", (cost, trader_name))
             cur.execute("INSERT INTO trading.position (trader_name, secid, quantity, avg_entry_price, updated_at) VALUES (%s,%s,%s,%s,NOW()) ON CONFLICT (trader_name, secid) DO UPDATE SET quantity=EXCLUDED.quantity, avg_entry_price=EXCLUDED.avg_entry_price, updated_at=NOW()", (trader_name, secid, new_qty, new_avg))
-            cur.execute("INSERT INTO trading.journal (trader_name, secid, action, quantity, price, reason, model_id, created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,NOW())", (trader_name, secid, "BUY", qty, price, reason, model_id))
+            cur.execute("INSERT INTO trading.journal (trader_name, secid, action, quantity, price, reason, model_id, indicators_snapshot, created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,NOW())", (trader_name, secid, "BUY", qty, price, reason, model_id, json.dumps(indicators)))
             current_cash -= cost; log_event(f"[{trader_name}] EXECUTED BUY: {secid} x{qty} @{price}")
         elif action_type in ["sell", "close", "reduce"]:
             if not pos_row or pos_row[0] <= 0: continue
@@ -249,7 +272,7 @@ def execute_trade_actions(trader_name, actions, current_cash, snapshots, model_i
             cur.execute("UPDATE trading.portfolio SET cash_balance = cash_balance + %s WHERE trader_name = %s", (income, trader_name))
             if pos_row[0] - qty_to_sell <= 0: cur.execute("DELETE FROM trading.position WHERE trader_name = %s AND secid = %s", (trader_name, secid))
             else: cur.execute("UPDATE trading.position SET quantity = quantity - %s WHERE trader_name = %s AND secid = %s", (qty_to_sell, trader_name, secid))
-            cur.execute("INSERT INTO trading.journal (trader_name, secid, action, quantity, price, reason, model_id, created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,NOW())", (trader_name, secid, "SELL", qty_to_sell, price, reason, model_id))
+            cur.execute("INSERT INTO trading.journal (trader_name, secid, action, quantity, price, reason, model_id, indicators_snapshot, created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,NOW())", (trader_name, secid, "SELL", qty_to_sell, price, reason, model_id, json.dumps(indicators)))
             current_cash += income; log_event(f"[{trader_name}] EXECUTED SELL: {secid} x{qty_to_sell} @{price}")
     conn.commit(); cur.close(); conn.close()
 
