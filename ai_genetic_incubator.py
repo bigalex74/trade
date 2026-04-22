@@ -1,86 +1,144 @@
-#!/usr/bin/env python3
 import psycopg2
 import json
-import subprocess
 import os
+import requests
+from datetime import datetime
+from algo_kb_client import upload_file_to_algo_kb
+from gemini_cli_runner import call_ai_markdown_with_fallback
+from ai_context_cache import is_low_quality_context
+from strategy_candidate_pipeline import create_candidate
 
+# CONFIG
 DB_CONFIG = {
     "host": os.getenv("DB_HOST", "localhost"),
-    "database": os.getenv("DB_NAME", "market_research"),
+    "database": "market_research",
     "user": os.getenv("DB_USER", "n8n_user"),
     "password": os.getenv("DB_PASSWORD", "n8n_db_password"),
 }
-
 def get_db_connection(): return psycopg2.connect(**DB_CONFIG)
 
-def call_ai(prompt):
-    cmd = ["gemini", "-p", prompt, "--model", "gemini-3.1-pro-preview", "--output-format", "json", "--approval-mode", "yolo"]
+def send_telegram_status(message):
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    if not token: return
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    payload = {"chat_id": "923741104", "text": message, "parse_mode": "HTML"}
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-        if res.returncode == 0:
-            raw_out = res.stdout
-            if "```json" in raw_out:
-                raw_out = raw_out.split("```json")[1].split("```")[0]
-            data = json.loads(raw_out)
-            resp = data.get("response", "")
-            if isinstance(resp, str) and resp.startswith("{"): return json.loads(resp)
-            return data
-    except Exception as e:
-        print(f"Error: {e}")
-    return None
+        proxies = {"http": "http://127.0.0.1:10808", "https": "http://127.0.0.1:10808"}
+        requests.post(url, json=payload, proxies=proxies, timeout=10)
+    except: pass
 
-def breed_new_agent():
-    print("🧬 Starting Genetic Incubator...")
+def compact_indicators(indicators):
+    keep_prefixes = (
+        "RSI",
+        "MACD",
+        "ADX",
+        "SMA",
+        "EMA",
+        "VWAP",
+        "ATR",
+        "AL_",
+        "fractal",
+        "STOCH",
+    )
+    compact = {}
+    for key, value in (indicators or {}).items():
+        if not any(str(key).startswith(prefix) for prefix in keep_prefixes):
+            continue
+        if isinstance(value, (int, float)):
+            compact[key] = round(float(value), 4)
+        elif isinstance(value, bool):
+            compact[key] = value
+    return compact
+
+def get_weekly_high_performers():
     conn = get_db_connection(); cur = conn.cursor()
-    
-    cur.execute("SELECT trader_name, cash_balance FROM trading.portfolio")
-    portfolios = {row[0]: float(row[1]) for row in cur.fetchall()}
-    
-    # Считаем Equity
-    stats = []
-    for name, cash in portfolios.items():
-        cur.execute("SELECT SUM(quantity * avg_entry_price) FROM trading.position WHERE trader_name = %s", (name,))
-        pos_val = float(cur.fetchone()[0] or 0)
-        equity = cash + pos_val
-        stats.append({"name": name, "equity": equity})
-        
-    stats = sorted(stats, key=lambda x: x['equity'], reverse=True)
-    best = stats[0]
-    worst = stats[-1]
-    
-    print(f"🏆 Top Performer: {best['name']} ({best['equity']:.2f})")
-    print(f"💀 Worst Performer: {worst['name']} ({worst['equity']:.2f})")
-    
-    # Получаем логику лучшего для мутации
-    cur.execute("SELECT learned_traits FROM trading.trader_config WHERE trader_name = %s", (best['name'],))
-    best_traits = cur.fetchone()[0]
-    
-    prompt = f"""
-    Act as a Quantitative Hedge Fund Architect. 
-    We run a league of 10 AI agents. Our WORST agent ({worst['name']}) is being fired.
-    Our BEST agent ({best['name']}) is winning with these traits: {best_traits}.
-    
-    TASK: Design a completely NEW trading agent to replace the worst one.
-    It should be an evolution or a complementary strategy to the best agent (e.g., if the best is Trend Following, maybe create a Volatility Breakout or Mean Reversion bot).
-    
-    Provide ONLY raw JSON:
-    {{
-        "new_name": "String (e.g. Volatility_Vlad)",
-        "strategy_dna": "String describing exact technical strategy, indicators to use, and mindset",
-        "search_query": "String for RAG knowledge base search"
-    }}
-    """
-    
-    new_agent = call_ai(prompt)
-    if new_agent:
-        print("\n🎉 NEW AGENT BORN:")
-        print(json.dumps(new_agent, indent=2, ensure_ascii=False))
-        print("\nTo integrate, add this to TRADERS_DATA in ai_paper_trader.py:")
-        print(f'"{new_agent["new_name"]}": {{"strategy": "{new_agent["strategy_dna"]}", "query": "{new_agent["search_query"]}"}}')
-    else:
-        print("Incubation failed.")
-        
+    cur.execute("""
+        SELECT secid, window_key, close, indicators, updated_at
+        FROM analytics.trader_market_windows
+        WHERE updated_at > now() - interval '7 days'
+        ORDER BY secid, updated_at ASC
+    """)
+    data = {}
+    for r in cur.fetchall():
+        secid = r[0]
+        item = data.setdefault(secid, {
+            "bars": 0,
+            "first_price": None,
+            "last_price": None,
+            "high": None,
+            "low": None,
+            "last_indicators": {},
+            "first_time": None,
+            "last_time": None,
+        })
+        price = float(r[2])
+        item["bars"] += 1
+        item["first_price"] = price if item["first_price"] is None else item["first_price"]
+        item["last_price"] = price
+        item["high"] = price if item["high"] is None else max(item["high"], price)
+        item["low"] = price if item["low"] is None else min(item["low"], price)
+        item["last_indicators"] = compact_indicators(r[3] or {})
+        item["first_time"] = r[4].isoformat() if item["first_time"] is None else item["first_time"]
+        item["last_time"] = r[4].isoformat()
     cur.close(); conn.close()
+    summaries = []
+    for secid, item in data.items():
+        first = item.get("first_price") or 0
+        last = item.get("last_price") or 0
+        item["secid"] = secid
+        item["change_pct"] = round(((last / first) - 1) * 100, 3) if first else 0.0
+        summaries.append(item)
+    summaries.sort(key=lambda item: abs(item.get("change_pct", 0)), reverse=True)
+    return summaries[: int(os.getenv("AI_INCUBATOR_MAX_ASSETS", "80"))]
+
+def synthesize_strategies():
+    print("--- STARTING STRATEGY GENETIC INCUBATOR ---")
+    test_mode = os.getenv("AI_TEST_MODE", "0") == "1"
+    if test_mode:
+        history_data = {"SBER": [{"p": 100.0, "inds": {}, "t": datetime.now().isoformat()}]}
+    else:
+        history_data = get_weekly_high_performers()
+    if not history_data:
+        print("Incubator skipped: no weekly market data.")
+        return
+
+    prompt = f"""
+    ROLE: Lead Strategy Architect & Data Scientist.
+    TASK: Discover unique profitable patterns and technical rules for EACH asset.
+    DATASET: {json.dumps(history_data)}
+    OBJECTIVES: 1. Identify 1-2 recurring setups per ticker. 2. Create Alpha Cheat Sheet.
+    OUTPUT: Markdown Report.
+    """
+
+    models = ["gemini-3-flash-preview", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro"]
+    alpha_report = "Incubation failed."
+    alpha_report = call_ai_markdown_with_fallback(prompt, models, name="Incubator", log_func=print, category="incubator")[0] or alpha_report
+
+    try:
+        if test_mode:
+            print("AI_TEST_MODE=1: skipped KB upload and Telegram notification.")
+        else:
+            if is_low_quality_context(alpha_report):
+                print("Incubator produced no usable report; skipped ALGO KB upload.")
+                return
+            conn = get_db_connection()
+            try:
+                candidate_id = create_candidate(
+                    conn,
+                    source="ai_genetic_incubator",
+                    title=f"Strategy alpha {datetime.now().strftime('%Y-%m-%d')}",
+                    candidate_text=alpha_report,
+                    metadata={"kind": "alpha_cheat_sheet", "auto_promote": False},
+                )
+                print(f"Incubator candidate saved: id={candidate_id}")
+            finally:
+                conn.close()
+            filename = f"strategy_alpha_{datetime.now().strftime('%Y-%m-%d')}.md"
+            with open(filename, "w") as f: f.write(alpha_report)
+            upload_file_to_algo_kb(filename, log_func=print)
+            send_telegram_status(f"🧠 <b>INCUBATOR COMPLETED</b>\nStrategic Alpha for {datetime.now().strftime('%Y-%m-%d')} generated.")
+    except Exception as e:
+        print(f"Incubation failed: {e}")
 
 if __name__ == "__main__":
-    breed_new_agent()
+    synthesize_strategies()
