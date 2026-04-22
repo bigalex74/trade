@@ -15,6 +15,7 @@ LOG_DIR = "/home/user/logs/traders"
 TELEGRAM_CHAT_ID = "923741104"
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 PROXIES = {"http": "http://127.0.0.1:10808", "https": "http://127.0.0.1:10808"}
+MANAGE_SCRIPT = "/home/user/manage_traders.sh"
 
 def send_alert(msg):
     if not TELEGRAM_TOKEN: return
@@ -23,6 +24,14 @@ def send_alert(msg):
     try: requests.post(url, json=payload, proxies=PROXIES, timeout=10)
     except: pass
 
+def restart_trader(trader):
+    try:
+        subprocess.run(["pkill", "-f", f"ai_paper_trader.py {trader}"])
+        res = subprocess.run(["bash", MANAGE_SCRIPT, "start", trader], capture_output=True, text=True)
+        return True
+    except Exception as e:
+        return False
+
 def check_health():
     now = datetime.now()
     # Проверка только в рабочее время MOEX (10:00 - 23:55)
@@ -30,25 +39,37 @@ def check_health():
         return
 
     issues = []
+    restarted = []
+
     for trader in TRADERS:
+        needs_restart = False
+        
         # 1. Проверка процесса воркера
         res = subprocess.run(["pgrep", "-f", f"run_{trader}.sh"], capture_output=True)
         if res.returncode != 0:
             issues.append(f"❌ Воркер {trader} не запущен!")
-            continue
-            
-        # 2. Проверка свежести лога (должен обновляться каждые 5-7 минут)
-        log_path = os.path.join(LOG_DIR, f"{trader}.log")
-        if not os.path.exists(log_path):
-            issues.append(f"❓ Лог {trader} отсутствует!")
-            continue
-            
-        mtime = datetime.fromtimestamp(os.path.getmtime(log_path))
-        if now - mtime > timedelta(minutes=15):
-            issues.append(f"⏳ Трейдер {trader} молчит более 15 минут!")
+            needs_restart = True
+        else:
+            # 2. Проверка свежести лога
+            log_path = os.path.join(LOG_DIR, f"{trader}.log")
+            if not os.path.exists(log_path):
+                issues.append(f"❓ Лог {trader} отсутствует!")
+                needs_restart = True
+            else:
+                mtime = datetime.fromtimestamp(os.path.getmtime(log_path))
+                if now - mtime > timedelta(minutes=15):
+                    issues.append(f"⏳ Трейдер {trader} молчит более 15 минут!")
+                    needs_restart = True
+
+        if needs_restart:
+            if restart_trader(trader):
+                restarted.append(trader)
 
     if issues:
-        send_alert("\n".join(issues))
+        alert_msg = "\n".join(issues)
+        if restarted:
+            alert_msg += f"\n\n🛠 <b>AUTO-RECOVERY:</b> Успешно отправлена команда на перезапуск: {', '.join(restarted)}"
+        send_alert(alert_msg)
     else:
         print(f"[{now.strftime('%H:%M')}] All traders are healthy.")
 
