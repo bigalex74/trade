@@ -1,77 +1,82 @@
 #!/usr/bin/env python3
 import os
-import subprocess
-import time
+import psycopg2
 from datetime import datetime, timedelta
 import requests
 
 # CONFIG
-TRADERS = [
-    "VSA_Victor", "Chaos_Bill", "Elliott_Alex", "Contrarian_Ricardo", 
-    "Quant_Diana", "PriceAction_Nikita", "Passive_Palych", 
-    "Scalper_Kesha", "Value_Monya", "Index_Tracker"
-]
-LOG_DIR = "/home/user/logs/traders"
+DB_CONFIG = {
+    "host": os.getenv("AI_JOBS_DB_HOST", os.getenv("DB_HOST", "localhost")),
+    "database": os.getenv("AI_JOBS_DB_NAME", "market_research"),
+    "user": os.getenv("AI_JOBS_DB_USER", os.getenv("DB_USER", "n8n_user")),
+    "password": os.getenv("AI_JOBS_DB_PASSWORD", os.getenv("DB_PASSWORD", "n8n_db_password")),
+}
 TELEGRAM_CHAT_ID = "923741104"
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 PROXIES = {"http": "http://127.0.0.1:10808", "https": "http://127.0.0.1:10808"}
-MANAGE_SCRIPT = "/home/user/manage_traders.sh"
+
+def get_db_connection(): 
+    return psycopg2.connect(**DB_CONFIG)
 
 def send_alert(msg):
-    if not TELEGRAM_TOKEN: return
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": f"🚨 <b>WATCHDOG ALERT</b>\n{msg}", "parse_mode": "HTML"}
-    try: requests.post(url, json=payload, proxies=PROXIES, timeout=10)
-    except: pass
-
-def restart_trader(trader):
-    try:
-        subprocess.run(["pkill", "-f", f"ai_paper_trader.py {trader}"])
-        res = subprocess.run(["bash", MANAGE_SCRIPT, "start", trader], capture_output=True, text=True)
-        return True
-    except Exception as e:
-        return False
-
-def check_health():
-    now = datetime.now()
-    # Проверка только в рабочее время MOEX (10:00 - 23:55)
-    if now.weekday() > 4 or now.hour < 10 or (now.hour == 23 and now.minute > 55):
+    if not TELEGRAM_TOKEN:
+        print(f"DEBUG ALERT (No Token):\n{msg}")
         return
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": f"🚨 <b>WATCHDOG ALERT (JOB QUEUE)</b>\n{msg}", "parse_mode": "HTML"}
+    try: 
+        requests.post(url, json=payload, proxies=PROXIES, timeout=10)
+    except Exception as e: 
+        print(f"Failed to send Telegram alert: {e}")
 
+def check_jobs_health():
+    now = datetime.now()
     issues = []
-    restarted = []
-
-    for trader in TRADERS:
-        needs_restart = False
+    
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
         
-        # 1. Проверка процесса воркера
-        res = subprocess.run(["pgrep", "-f", f"run_{trader}.sh"], capture_output=True)
-        if res.returncode != 0:
-            issues.append(f"❌ Воркер {trader} не запущен!")
-            needs_restart = True
-        else:
-            # 2. Проверка свежести лога
-            log_path = os.path.join(LOG_DIR, f"{trader}.log")
-            if not os.path.exists(log_path):
-                issues.append(f"❓ Лог {trader} отсутствует!")
-                needs_restart = True
-            else:
-                mtime = datetime.fromtimestamp(os.path.getmtime(log_path))
-                if now - mtime > timedelta(minutes=15):
-                    issues.append(f"⏳ Трейдер {trader} молчит более 15 минут!")
-                    needs_restart = True
+        # 1. Failed or Stale jobs in the last 15 minutes
+        cur.execute("""
+            SELECT job_type, trader_name, status, count(*), max(error) 
+            FROM trading.ai_jobs 
+            WHERE status IN ('failed', 'stale') 
+              AND updated_at > NOW() - INTERVAL '15 minutes'
+            GROUP BY job_type, trader_name, status
+        """)
+        failed_jobs = cur.fetchall()
+        for row in failed_jobs:
+            name = row[1] or row[0]
+            error_preview = (row[4][:50] + "...") if row[4] and len(row[4]) > 50 else row[4]
+            issues.append(f"❌ <b>{row[3]}x {row[2].upper()}</b> for {name}\n   <i>{error_preview}</i>")
 
-        if needs_restart:
-            if restart_trader(trader):
-                restarted.append(trader)
+        # 2. Jobs stuck in 'running' for more than 15 mins
+        cur.execute("""
+            SELECT job_type, trader_name, EXTRACT(EPOCH FROM (NOW() - started_at))/60
+            FROM trading.ai_jobs
+            WHERE status = 'running' AND started_at < NOW() - INTERVAL '15 minutes'
+        """)
+        stuck_running = cur.fetchall()
+        for row in stuck_running:
+            name = row[1] or row[0]
+            issues.append(f"⏳ <b>STUCK:</b> {name} running for {row[2]:.0f} mins")
+
+        # 3. Queue backlog (if queue size > 20 and not processing fast enough)
+        cur.execute("SELECT count(*) FROM trading.ai_jobs WHERE status = 'queued'")
+        queued_count = cur.fetchone()[0]
+        if queued_count > 20:
+            issues.append(f"⚠️ <b>QUEUE BACKLOG:</b> {queued_count} jobs waiting in queue!")
+
+        cur.close()
+        conn.close()
+    except Exception as e:
+        issues.append(f"🔌 <b>DB ERROR:</b> Watchdog cannot connect to DB: {e}")
 
     if issues:
-        alert_msg = "\n".join(issues)
-        if restarted:
-            alert_msg += f"\n\n🛠 <b>AUTO-RECOVERY:</b> Успешно отправлена команда на перезапуск: {', '.join(restarted)}"
-        send_alert(alert_msg)
+        send_alert("\n".join(issues))
     else:
-        print(f"[{now.strftime('%H:%M')}] All traders are healthy.")
+        print(f"[{now.strftime('%H:%M')}] All AI Jobs are healthy and processing normally.")
 
 if __name__ == "__main__":
-    check_health()
+    check_jobs_health()
