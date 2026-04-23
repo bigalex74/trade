@@ -50,13 +50,19 @@ status() {
     echo -e "CRYPTO TRADER\tSTATUS\t\tPID\t\tLOG_SIZE"
     echo "------------------------------------------------------------"
     for TRADER in $(get_traders); do
-        PID=$(pgrep -f "traders/crypto/run_$TRADER.sh")
-        LOG="$LOG_DIR/crypto_$TRADER.log"
+        # Ищем точное совпадение пути скрипта
+        PID=$(pgrep -f "/home/user/traders/crypto/run_$TRADER.sh" | xargs)
+        LOG="/home/user/logs/traders/crypto_$TRADER.log"
+        if [ "$TRADER" = "hourly_report" ]; then
+             LOG="/home/user/logs/traders/crypto_hourly_report.log"
+        fi
         SIZE=$(du -h "$LOG" 2>/dev/null | cut -f1)
         [ -z "$SIZE" ] && SIZE="0"
         
         if [ -n "$PID" ]; then
-            IS_DEBUG=$(ps -fp "$PID" | grep "DEBUG_MODE=true")
+            # Берем только первый PID для проверки статуса
+            FIRST_PID=$(echo $PID | cut -d' ' -f1)
+            IS_DEBUG=$(ps -fp "$FIRST_PID" | grep "DEBUG_MODE=true")
             if [ -n "$IS_DEBUG" ]; then
                 echo -e "$TRADER\t\tDEBUGGING\t$PID\t\t$SIZE"
             else
@@ -75,7 +81,10 @@ start_all() {
     
     echo "Starting all Crypto Traders (Debug: $DEBUG)..."
     for TRADER in $(get_traders); do
+        if [ "$TRADER" = "hourly_report" ]; then continue; fi
         start_trader "$TRADER" "$DEBUG"
+        echo "[ WAIT ] Sleeping 15s to stagger load..."
+        sleep 20
     done
 
     echo "Starting Crypto Hourly Report Worker..."

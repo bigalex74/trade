@@ -380,8 +380,11 @@ def parse_moex_ts(raw_value):
         return datetime.fromisoformat(text.replace("Z", "+00:00")).astimezone(UTC)
     if "T" in text:
         parsed = datetime.fromisoformat(text)
-        return parsed.astimezone(UTC) if parsed.tzinfo else parsed.replace(tzinfo=UTC)
-    return datetime.strptime(text, "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
+        if parsed.tzinfo is None:
+            # MOEX returns MSK without TZ info
+            return parsed.replace(tzinfo=MOSCOW_TZ).astimezone(UTC)
+        return parsed.astimezone(UTC)
+    return datetime.strptime(text, "%Y-%m-%d %H:%M:%S").replace(tzinfo=MOSCOW_TZ).astimezone(UTC)
 
 
 def normalize_decimal(raw_value):

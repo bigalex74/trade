@@ -192,7 +192,7 @@ def deep_analyze_and_evolve():
             filename = f"deep_dive_{datetime.now().strftime('%Y-%m-%d')}.md"
             with open(filename, "w") as f: f.write(report_md)
             upload_file_to_algo_kb(filename, log_func=print)
-            send_telegram_status(f"🧬 <b>EVOLUTION COMPLETED</b>\nAudit for {datetime.now().strftime('%Y-%m-%d')} uploaded to ALGO KB.")
+            send_telegram_status(f"🧬 <b>ЭВОЛЮЦИОННЫЙ АУДИТ ЗАВЕРШЕН</b>\nОтчет за {datetime.now().strftime('%Y-%m-%d')} загружен в ALGO KB.")
     except Exception as e:
         print(f"Evolution failed: {e}")
 

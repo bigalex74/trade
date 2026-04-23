@@ -14,6 +14,7 @@ DB_CONFIG = {
 
 LOG_FILE = "/home/user/logs/traders/matching_engine.log"
 SLIPPAGE_PCT = 0.0005  # 0.05% slippage
+MATCHING_DRY_RUN = os.getenv("MATCHING_DRY_RUN", "0").lower() in {"1", "true", "yes", "on"}
 
 def log_event(msg):
     os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
@@ -128,6 +129,11 @@ def match_orders():
                 log_event(f"[{trader_name}] FILLED ORDER {order_id}: {order_type} {secid} x{qty} @{execution_price:.4f}")
                 filled_count += 1
                 
+        if MATCHING_DRY_RUN:
+            conn.rollback()
+            log_event(f"Matching Engine dry-run complete. Would fill {filled_count} orders.")
+            return
+
         conn.commit()
         if filled_count > 0:
             log_event(f"Matching Engine cycle complete. Filled {filled_count} orders.")

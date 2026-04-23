@@ -23,7 +23,7 @@ def send_alert(msg):
         print(f"DEBUG ALERT (No Token):\n{msg}")
         return
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": f"🚨 <b>WATCHDOG ALERT (JOB QUEUE)</b>\n{msg}", "parse_mode": "HTML"}
+    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": f"🚨 <b>АЛЕРТ WATCHDOG: ОЧЕРЕДЬ ЗАДАЧ</b>\n{msg}", "parse_mode": "HTML"}
     try: 
         requests.post(url, json=payload, proxies=PROXIES, timeout=10)
     except Exception as e: 

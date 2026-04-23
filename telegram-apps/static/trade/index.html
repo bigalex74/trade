@@ -3,187 +3,186 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>MOEX AI LEAGUE</title>
+    <title>AI Trading League Dashboard</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        body { background-color: var(--tg-theme-bg-color, #1a1a1a); color: var(--tg-theme-text-color, #ffffff); }
-        .card { background-color: var(--tg-theme-secondary-bg-color, #2d2d2d); border-radius: 12px; }
-        .accent { color: var(--tg-theme-button-color, #3b82f6); }
-        .success { color: #10b981; }
-        .error { color: #ef4444; }
+        :root {
+            --bg-color: var(--tg-theme-bg-color, #f0f2f5);
+            --text-color: var(--tg-theme-text-color, #2c3e50);
+            --hint-color: var(--tg-theme-hint-color, #7f8c8d);
+            --link-color: var(--tg-theme-link-color, #3498db);
+            --button-color: var(--tg-theme-button-color, #3498db);
+            --button-text-color: var(--tg-theme-button-text-color, #ffffff);
+            --card-bg: var(--tg-theme-secondary-bg-color, #ffffff);
+            --green: #2ecc71;
+            --red: #e74c3c;
+            --orange: #f39c12;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0; padding: 15px;
+            -webkit-user-select: none;
+        }
+
+        .header {
+            display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;
+        }
+
+        .risk-badge {
+            padding: 8px 15px; border-radius: 20px; font-weight: bold; font-size: 14px;
+            text-transform: uppercase; color: white;
+        }
+        .risk-green { background-color: var(--green); }
+        .risk-orange { background-color: var(--orange); }
+        .risk-red { background-color: var(--red); }
+
+        .stats-grid {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: var(--card-bg); padding: 15px; border-radius: 12px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05); text-align: center;
+        }
+
+        .stat-label { font-size: 12px; color: var(--hint-color); margin-bottom: 5px; }
+        .stat-value { font-size: 20px; font-weight: bold; }
+
+        .trader-list {
+            background: var(--card-bg); border-radius: 12px; overflow: hidden;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        }
+
+        .trader-item {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 15px; border-bottom: 1px solid rgba(0,0,0,0.05);
+        }
+
+        .trader-info div:first-child { font-weight: bold; font-size: 16px; }
+        .trader-info div:last-child { font-size: 12px; color: var(--hint-color); margin-top: 2px; }
+
+        .trader-pnl { font-weight: bold; text-align: right; }
+        .pnl-pos { color: var(--green); }
+        .pnl-neg { color: var(--red); }
+
+        .tabs {
+            display: flex; background: var(--card-bg); border-radius: 10px;
+            padding: 4px; margin-bottom: 20px;
+        }
+        .tab {
+            flex: 1; text-align: center; padding: 8px; border-radius: 8px;
+            cursor: pointer; font-size: 14px; font-weight: 500;
+        }
+        .tab.active { background: var(--button-color); color: var(--button-text-color); }
+
+        .section-title { font-size: 14px; font-weight: bold; color: var(--hint-color); margin: 20px 0 10px 5px; text-transform: uppercase; }
+
+        .loading { text-align: center; padding: 50px; color: var(--hint-color); }
     </style>
 </head>
-<body class="p-4 font-sans overflow-x-hidden">
-
-    <!-- TABS -->
-    <div class="flex space-x-2 mb-6">
-        <button id="tab-moex" onclick="switchDivision('moex')" class="flex-1 py-2 rounded-lg font-bold text-sm bg-blue-600 text-white shadow-lg transition-all">MOEX</button>
-        <button id="tab-crypto" onclick="switchDivision('crypto')" class="flex-1 py-2 rounded-lg font-bold text-sm bg-gray-800 text-gray-400 transition-all">CRYPTO</button>
+<body>
+    <div class="header">
+        <h2 style="margin:0">AI League</h2>
+        <div id="risk-level" class="risk-badge risk-green">Green Regime</div>
     </div>
 
-    <!-- HEADER: LEAGUE TOTALS -->
-    <div class="card p-6 mb-6 text-center shadow-lg border border-blue-500/20">
-        <h1 class="text-xs uppercase tracking-widest text-gray-400 mb-1">Общий капитал Лиги</h1>
-        <div id="total-equity" class="text-3xl font-bold mb-1">загрузка...</div>
-        <div id="total-pnl" class="text-sm font-medium">--</div>
-    </div>
-    
-    <!-- SENTIMENT ORACLE -->
-    <div class="mb-6">
-        <h2 class="text-sm font-bold uppercase text-gray-500 mb-4 tracking-wider">News Sentiment Oracle</h2>
-        <div id="sentiment-list" class="flex overflow-x-auto space-x-3 pb-2 snap-x mb-2"></div>
-        <div id="instruments-list" class="text-[10px] text-gray-600 uppercase tracking-tighter"></div>
+    <div class="tabs">
+        <div class="tab active" onclick="switchDivision('moex')">MOEX (Stock)</div>
+        <div class="tab" onclick="switchDivision('crypto')">Crypto</div>
     </div>
 
-    <!-- MAIN DASHBOARD -->
-    <div class="mb-8">
-        <h2 id="league-title" class="text-sm font-bold uppercase text-gray-500 mb-4 tracking-wider">AI Трейдеры (MOEX)</h2>
-        <div id="traders-grid" class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <!-- Trader cards injected here -->
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-label">Total Equity</div>
+            <div id="total-equity" class="stat-value">0.00</div>
+        </div>
+        <div id="storm-mode-card" class="stat-card">
+            <div class="stat-label">Storm Mode</div>
+            <div id="storm-status" class="stat-value" style="color: var(--green)">OFF</div>
         </div>
     </div>
 
-    <!-- PENDING ORDERS -->
-    <div class="mb-8">
-        <h2 class="text-sm font-bold uppercase text-gray-500 mb-4 tracking-wider">Отложенные Ордера</h2>
-        <div id="orders-list" class="space-y-2">
-            <!-- Orders injected here -->
-        </div>
-    </div>
-
-    <!-- RECENT JOURNAL -->
-    <div class="mb-20">
-        <h2 class="text-sm font-bold uppercase text-gray-500 mb-4 tracking-wider">Последние сделки</h2>
-        <div id="journal-list" class="space-y-3">
-            <!-- Journal items injected here -->
-        </div>
+    <div class="section-title">Trading Agents</div>
+    <div id="trader-list" class="trader-list">
+        <div class="loading">Fetching data...</div>
     </div>
 
     <script>
         const tg = window.Telegram.WebApp;
         tg.expand();
+        tg.ready();
+
         let currentDivision = 'moex';
 
-        async function switchDivision(div) {
-            currentDivision = div;
-            // UI Toggle
-            const mBtn = document.getElementById('tab-moex');
-            const cBtn = document.getElementById('tab-crypto');
-            const title = document.getElementById('league-title');
-            
-            if (div === 'moex') {
-                mBtn.className = 'flex-1 py-2 rounded-lg font-bold text-sm bg-blue-600 text-white shadow-lg';
-                cBtn.className = 'flex-1 py-2 rounded-lg font-bold text-sm bg-gray-800 text-gray-400';
-                title.innerText = 'AI Трейдеры (MOEX)';
-            } else {
-                cBtn.className = 'flex-1 py-2 rounded-lg font-bold text-sm bg-orange-500 text-white shadow-lg';
-                mBtn.className = 'flex-1 py-2 rounded-lg font-bold text-sm bg-gray-800 text-gray-400';
-                title.innerText = 'Crypto Агенты (Binance)';
-            }
-            
-            // Мгновенная очистка старых данных, чтобы не путать
-            document.getElementById('traders-grid').innerHTML = '<div class="text-gray-500 p-4">Синхронизация...</div>';
-            document.getElementById('journal-list').innerHTML = '';
-            document.getElementById('total-equity').innerText = '...';
-            
-            fetchData();
-        }
-
-        async function fetchData() {
+        async function loadData() {
             try {
                 const response = await fetch(`/api/trade/league?division=${currentDivision}`);
                 const data = await response.json();
                 renderUI(data);
-            } catch (err) {
-                console.error("Fetch error:", err);
+            } catch (e) {
+                console.error("Fetch error:", e);
             }
         }
 
-        function renderUI(data) {
-            const { traders, positions, journal, orders, sentiment, instruments } = data;
-            const currency = currentDivision === 'moex' ? '₽' : '$';
-            
-            // Instruments focal list
-            document.getElementById('instruments-list').innerText = 'Фокус: ' + (instruments ? instruments.map(i => i.secid).join(' • ') : 'загрузка...');
-
-            // 1. Totals
-            let totalEquity = 0;
-            traders.forEach(t => {
-                const traderPos = positions.filter(p => p.trader_name === t.trader_name);
-                const posValue = traderPos.reduce((sum, p) => sum + (Math.abs(p.quantity) * parseFloat(p.avg_entry_price)), 0);
-                totalEquity += (parseFloat(t.cash_balance) + posValue);
-            });
-            document.getElementById('total-equity').innerText = `${totalEquity.toLocaleString('ru-RU', {maximumFractionDigits:0})} ${currency}`;
-            
-            // Sentiment
-            const sentList = document.getElementById('sentiment-list');
-            sentList.innerHTML = sentiment && sentiment.length > 0 ? sentiment.map(s => {
-                const isGood = parseFloat(s.score) > 0;
-                return `<div class="card shrink-0 p-2 text-xs border ${isGood ? 'border-green-500/30' : 'border-red-500/30'}">
-                    <span class="font-bold">${s.secid}</span> <span class="${isGood ? 'text-green-400' : 'text-red-400'}">${s.score}</span>
-                </div>`;
-            }).join('') : '<div class="text-gray-500 text-xs">Нет данных</div>';
-
-            // 2. Traders
-            const grid = document.getElementById('traders-grid');
-            grid.innerHTML = '';
-            traders.forEach(t => {
-                const traderPos = positions.filter(p => p.trader_name === t.trader_name);
-                const posStr = traderPos.map(p => {
-                    const type = p.quantity > 0 ? 'LONG' : 'SHORT';
-                    return `<span class="${p.quantity>0 ? 'text-green-400' : 'text-red-400'}">${p.secid} x${Math.abs(p.quantity)} (${type})</span>`;
-                }).join(', ') || '<span class="text-gray-500">В кеше</span>';
-                
-                const card = document.createElement('div');
-                card.className = 'card p-4 border border-white/5';
-                card.innerHTML = `
-                    <div class="flex justify-between items-start mb-2">
-                        <span class="font-bold text-blue-400">${t.trader_name}</span>
-                        <span class="text-xs text-gray-400">${parseFloat(t.cash_balance).toLocaleString('ru-RU',{maximumFractionDigits:0})} ${currency}</span>
-                    </div>
-                    <div class="text-sm mb-3">${posStr}</div>
-                    <div class="text-[10px] text-gray-500 italic border-t border-white/5 pt-2">
-                        ${t.memory ? t.memory.replace(/\\n/g, '<br>') : 'Анализирует рынок...'}
-                    </div>
-                `;
-                grid.appendChild(card);
-            });
-            
-            // Orders
-            const ordList = document.getElementById('orders-list');
-            ordList.innerHTML = orders && orders.length > 0 ? orders.map(o => `
-                <div class="card p-2 px-3 flex justify-between text-xs border-l-2 border-yellow-500">
-                    <span><b>${o.secid}</b> x${o.quantity} (${o.order_type})</span>
-                    <span class="text-yellow-400">@ ${o.target_price} ${currency}</span>
-                </div>
-            `).join('') : '<div class="text-gray-500 text-xs">Нет активных заявок</div>';
-
-            // 3. Journal
-            const journalList = document.getElementById('journal-list');
-            journalList.innerHTML = '';
-            journal.forEach(j => {
-                const item = document.createElement('div');
-                const isBuy = j.action === 'BUY' || j.action === 'COVER';
-                item.className = 'card p-3 flex justify-between items-center text-sm border-l-4 ' + 
-                                (isBuy ? 'border-green-500' : 'border-red-500');
-                
-                const date = new Date(j.created_at).toLocaleTimeString('ru-RU', {hour: '2-digit', minute:'2-digit'});
-                
-                item.innerHTML = `
-                    <div>
-                        <span class="font-bold mr-2">${j.secid}</span>
-                        <span class="${isBuy ? 'success' : 'error'} font-medium">${j.action} x${j.quantity}</span>
-                        <div class="text-[10px] text-gray-500 mt-1">${j.trader_name} @ ${j.price} ${currency}</div>
-                    </div>
-                    <div class="text-gray-400 text-xs">${date}</div>
-                `;
-                journalList.appendChild(item);
-            });
+        function switchDivision(div) {
+            currentDivision = div;
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            event.target.classList.add('active');
+            document.getElementById('trader-list').innerHTML = '<div class="loading">Loading...</div>';
+            loadData();
         }
 
-        fetchData();
-        setInterval(fetchData, 30000);
+        function renderUI(data) {
+            const list = document.getElementById('trader-list');
+            list.innerHTML = '';
+
+            let totalEquity = 0;
+            const currency = data.division === 'moex' ? '₽' : '$';
+
+            data.traders.forEach(trader => {
+                const equity = parseFloat(trader.cash_balance);
+                totalEquity += equity;
+
+                const item = document.createElement('div');
+                item.className = 'trader-item';
+                item.innerHTML = `
+                    <div class="trader-info">
+                        <div>👤 ${trader.trader_name}</div>
+                        <div style="max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                            🧠 ${trader.memory || 'Waiting for nightly audit...'}
+                        </div>
+                    </div>
+                    <div class="trader-pnl">
+                        <div>${equity.toLocaleString()} ${currency}</div>
+                        <div class="pnl-pos" style="font-size: 11px">+0.00%</div>
+                    </div>
+                `;
+                list.appendChild(item);
+            });
+
+            document.getElementById('total-equity').innerText = `${totalEquity.toLocaleString()} ${currency}`;
+            
+            // Динамический риск
+            const riskBadge = document.getElementById('risk-level');
+            riskBadge.className = `risk-badge risk-${data.risk.toLowerCase()}`;
+            riskBadge.innerText = `${data.risk} REGIME`;
+
+            // Storm Mode
+            const stormStatus = document.getElementById('storm-status');
+            if (data.storm_mode) {
+                stormStatus.innerText = 'ACTIVE (50% Risk)';
+                stormStatus.style.color = 'var(--red)';
+            } else {
+                stormStatus.innerText = 'OFF';
+                stormStatus.style.color = 'var(--green)';
+            }
+        }
+
+        loadData();
+        setInterval(loadData, 60000); // Обновление раз в минуту
     </script>
 </body>
 </html>

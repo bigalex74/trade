@@ -30,6 +30,8 @@ def calculate_technical_indicators(df):
         df.ta.smma(length=5, offset=3, append=True, col_names=("AL_LIPS",))
         df.ta.rsi(length=14, append=True)
         df.ta.macd(fast=12, slow=26, signal=9, append=True)
+        df.ta.obv(append=True) # Добавлено для VSA
+        df.ta.supertrend(period=7, multiplier=3, append=True) # Добавлено для трендов
         df.ta.stoch(high='high', low='low', close='close', append=True)
         df.ta.tsi(fast=13, slow=25, signal=13, append=True)
         df.ta.rvi(length=14, append=True)
@@ -61,6 +63,7 @@ def calculate_technical_indicators(df):
             if pd.isna(v): continue
             new_key = k.replace("BBU_20_2.0", "BB_UP").replace("BBL_20_2.0", "BB_LOW").replace("BBM_20_2.0", "BB_MID")
             new_key = new_key.replace("CKSPl_10_1_9", "CK_STOP_LONG").replace("CKSPs_10_1_9", "CK_STOP_SHORT")
+            new_key = new_key.replace("SUPERT_7_3.0", "SUPERTREND").replace("SUPERTd_7_3.0", "SUPERTREND_DIR")
             if isinstance(v, (bool, pd.BooleanDtype)): clean[new_key] = bool(v)
             elif isinstance(v, (float, int)): clean[new_key] = float(v)
             else: clean[new_key] = str(v)
@@ -86,28 +89,37 @@ def fetch_and_store_crypto_data():
     for ticker in TICKERS:
         try:
             print(f"Fetching data for {ticker}...")
-            # Fetch 1h and 1d candles for context and indicators
+            # Fetch 5m, 1h and 1d candles for context and indicators
+            ohlcv_5m = exchange.fetch_ohlcv(ticker, '5m', limit=100)
             ohlcv_1h = exchange.fetch_ohlcv(ticker, '1h', limit=100)
             ohlcv_1d = exchange.fetch_ohlcv(ticker, '1d', limit=100)
             
-            if not ohlcv_1h or not ohlcv_1d: continue
+            if not ohlcv_5m or not ohlcv_1h or not ohlcv_1d: continue
             
             # Format to DataFrame
+            df_5m = pd.DataFrame(ohlcv_5m, columns=['period_start', 'open', 'high', 'low', 'close', 'volume'])
             df_1h = pd.DataFrame(ohlcv_1h, columns=['period_start', 'open', 'high', 'low', 'close', 'volume'])
             df_1d = pd.DataFrame(ohlcv_1d, columns=['period_start', 'open', 'high', 'low', 'close', 'volume'])
             
-            df_1h['period_start'] = pd.to_datetime(df_1h['period_start'], unit='ms')
-            df_1d['period_start'] = pd.to_datetime(df_1d['period_start'], unit='ms')
-            df_1h.set_index('period_start', inplace=True)
-            df_1d.set_index('period_start', inplace=True)
+            for df in [df_5m, df_1h, df_1d]:
+                df['period_start'] = pd.to_datetime(df['period_start'], unit='ms')
+                df.set_index('period_start', inplace=True)
             
             # Calculate Indicators
+            inds_5m = calculate_technical_indicators(df_5m)
+            
+            # ШАГ 2: Генерация графиков Vision (на базе 5м окна)
+            from chart_generator import generate_technical_chart
+            generate_technical_chart(df_5m, ticker)
+
             inds_1h = calculate_technical_indicators(df_1h)
             inds_1d = calculate_technical_indicators(df_1d)
             
             # Prepare rows for upsert
-            last_1h = df_1h.iloc[-1]
-            last_1d = df_1d.iloc[-1]
+            last_5m = df_5m.iloc[-1]; last_1h = df_1h.iloc[-1]; last_1d = df_1d.iloc[-1]
+            
+            change_5m = float(last_5m['close'] - last_5m['open'])
+            pct_5m = float((change_5m / last_5m['open']) * 100) if last_5m['open'] else 0.0
             
             change_1h = float(last_1h['close'] - last_1h['open'])
             pct_1h = float((change_1h / last_1h['open']) * 100) if last_1h['open'] else 0.0
@@ -121,12 +133,14 @@ def fetch_and_store_crypto_data():
                         secid, engine, market, board, window_key, period_start, period_end,
                         open, high, low, close, volume, source_interval, is_closed, change_abs, change_pct, indicators, updated_at
                     ) VALUES 
+                    (%s, 'crypto', 'spot', 'binance', 'current_5m', %s, %s, %s, %s, %s, %s, %s, '5m', false, %s, %s, %s, NOW()),
                     (%s, 'crypto', 'spot', 'binance', 'current_hour', %s, %s, %s, %s, %s, %s, %s, '1h', false, %s, %s, %s, NOW()),
                     (%s, 'crypto', 'spot', 'binance', 'current_day', %s, %s, %s, %s, %s, %s, %s, '1d', false, %s, %s, %s, NOW())
                     ON CONFLICT (secid, window_key) DO UPDATE SET
                         open=EXCLUDED.open, high=EXCLUDED.high, low=EXCLUDED.low, close=EXCLUDED.close, volume=EXCLUDED.volume,
                         change_abs=EXCLUDED.change_abs, change_pct=EXCLUDED.change_pct, indicators=EXCLUDED.indicators, updated_at=NOW()
                 """, (
+                    ticker, str(df_5m.index[-1]), str(df_5m.index[-1]), float(last_5m['open']), float(last_5m['high']), float(last_5m['low']), float(last_5m['close']), float(last_5m['volume']), change_5m, pct_5m, json.dumps(inds_5m),
                     ticker, str(df_1h.index[-1]), str(df_1h.index[-1]), float(last_1h['open']), float(last_1h['high']), float(last_1h['low']), float(last_1h['close']), float(last_1h['volume']), change_1h, pct_1h, json.dumps(inds_1h),
                     ticker, str(df_1d.index[-1]), str(df_1d.index[-1]), float(last_1d['open']), float(last_1d['high']), float(last_1d['low']), float(last_1d['close']), float(last_1d['volume']), change_1d, pct_1d, json.dumps(inds_1d)
                 ))

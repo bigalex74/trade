@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import psycopg2, json, subprocess, os, requests, sys, html
+import psycopg2, json, os, requests, sys, html
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
@@ -8,6 +8,7 @@ if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(line_buffering=True)
 
 from crypto_research_context import build_price_snapshot, compact_context_payload, load_market_context
+from gemini_cli_runner import call_ai_json_with_fallback
 
 # CONFIG
 DB_CONFIG = {
@@ -112,52 +113,17 @@ def build_trader_report_message(trader_name, report):
     if report["positions_preview"]: lines.append(f"Портфель: {html.escape(report['positions_preview'])}")
     return "\n".join(lines)
 
-def notify_model_switch(current_model, next_model, reason, trader_name=None):
-    trader_label = trader_name or "AI Trader"
-    next_label = next_model or "нет следующей модели"
-    log_event(f"[{trader_label}] Переключение модели: {current_model} -> {next_label}. Причина: {reason}")
-    send_telegram(f"⚠️ <b>{html.escape(trader_label)}</b>: переключение модели\n<code>{html.escape(current_model)}</code> → <code>{html.escape(next_label)}</code>\nПричина: {html.escape(reason)}")
-
-def is_capacity_error(stdout, stderr):
-    output = (stdout or "") + (stderr or "")
-    return any(x in output.lower() for x in ["capacity", "overloaded", "quota", "exhausted", "429"])
-
 def call_ai_with_fallback(prompt, models_rank, trader_name=None):
-    # Динамически загружаем все доступные модели из рейтинга
-    preferred_models = [m['id'] for m in models_rank]
-    # Всегда добавляем локальную Ollama как самый последний резерв
-    if "ollama/llama3.2" not in preferred_models:
-        preferred_models.append("ollama/llama3.2")
-
-    for index, model_id in enumerate(preferred_models):
-        next_model = preferred_models[index + 1] if index + 1 < len(preferred_models) else None
-        
-        if model_id.startswith("ollama/"):
-            ollama_name = model_id.replace("ollama/", "")
-            try:
-                res = subprocess.run(["ollama", "run", ollama_name, prompt], capture_output=True, text=True, timeout=180)
-                if res.returncode == 0 and "{" in res.stdout:
-                    json_str = res.stdout[res.stdout.find("{"):res.stdout.rfind("}")+1]
-                    return json.loads(json_str), model_id
-                else: continue
-            except: continue
-
-        cmd = ["gemini", "-p", prompt, "--model", model_id, "--output-format", "json", "--approval-mode", "yolo"]
-        try:
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
-            if is_capacity_error(res.stdout, res.stderr):
-                notify_model_switch(model_id, next_model, "исчерпана квота", trader_name=trader_name); continue
-            if res.returncode != 0: continue
-            raw_out = res.stdout
-            if "```json" in raw_out: raw_out = raw_out.split("```json")[1].split("```")[0]
-            try:
-                data = json.loads(raw_out)
-                resp_text = data.get("response", "")
-                if isinstance(resp_text, str) and resp_text.strip().startswith("{"): return json.loads(resp_text), model_id
-                return data, model_id
-            except: continue
-        except: continue
-    return None, None
+    preferred_models = [m["id"] if isinstance(m, dict) else str(m) for m in models_rank]
+    return call_ai_json_with_fallback(
+        prompt,
+        models=preferred_models,
+        name=f"crypto:{trader_name or 'AI Trader'}",
+        log_func=log_event,
+        include_ollama=True,
+        category="trader",
+        trader_name=trader_name,
+    )
 
 # SECTOR MAPPING FOR CORRELATION PROTECTION
 SECTOR_MAP = {
@@ -402,15 +368,6 @@ def main():
         "TECHNICAL MANUAL: - Alligator: Jaw(Blue), Teeth(Red), Lips(Green). Open mouth = trend. - CK_STOP: Chande Kroll Stop for exits. PSAR: Parabolic SAR for trend. - TSI: True Strength Index. RVI: Relative Vigor Index. CHOP: >61 means sideways market.",
         "ORDER TYPES: You can use 'buy', 'sell' (market execution). You can also use 'limit_buy', 'limit_sell', 'stop_loss' (must provide 'target_price'). You can use 'short' to short-sell, and 'cover' to close a short.",
         f"1. Query 'lightrag-algo' for '{TRADERS_DATA[name]['query']}'. 2. Respond ONLY raw JSON object with keys: summary, market_bias, confidence, actions (array with secid, action, target_price (optional), reason), risk_notes."
-    ]
-    prompt = " ".join(prompt_parts)
-    decisions, used_model = call_ai_with_fallback(prompt, models, trader_name=name)
-    if decisions is not None:
-        execute_trade_actions(name, decisions.get("actions", []), cash, snapshots, used_model)
-    else: send_telegram(f"🔴 <b>{name}</b>: Ошибка! Все AI модели недоступны.")
-
-if __name__ == "__main__": main()
-w JSON object with keys: summary, market_bias, confidence, actions (array with secid, action, target_price (optional), reason), risk_notes."
     ]
     prompt = " ".join(prompt_parts)
     decisions, used_model = call_ai_with_fallback(prompt, models, trader_name=name)

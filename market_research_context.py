@@ -12,6 +12,7 @@ DB_CONFIG = {
 MARKET_CONTEXT_SQL = """
 SELECT
     secid,
+    engine,
     instrument_group,
     issuer_name,
     current_price,
@@ -56,11 +57,12 @@ def load_market_context(conn=None):
             rows = cur.fetchall()
 
         context = {}
-        for secid, instrument_group, issuer_name, current_price, day_change_pct, hour_change_pct, five_min_change_pct, updated_at, windows in rows:
+        for secid, engine, instrument_group, issuer_name, current_price, day_change_pct, hour_change_pct, five_min_change_pct, updated_at, windows in rows:
             day_change = _to_float(day_change_pct)
             hour_change = _to_float(hour_change_pct)
             five_min_change = _to_float(five_min_change_pct)
             context[secid] = {
+                "engine": engine,
                 "price": _to_float(current_price),
                 "change": next(
                     (

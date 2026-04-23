@@ -2,9 +2,8 @@
 import psycopg2
 import json
 import os
-import subprocess
-import time
 from datetime import datetime
+from gemini_cli_runner import call_ai_json_with_fallback
 
 # CONFIG
 DB_CONFIG = {
@@ -24,32 +23,50 @@ def log_event(msg):
 def get_db_connection(): return psycopg2.connect(**DB_CONFIG)
 
 def call_ai(prompt):
-    cmd = ["gemini", "-p", prompt, "--model", "gemini-3-flash-preview", "--output-format", "json", "--approval-mode", "yolo"]
-    try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-        if res.returncode == 0:
-            raw_out = res.stdout
-            if "```json" in raw_out:
-                raw_out = raw_out.split("```json")[1].split("```")[0]
-            try:
-                data = json.loads(raw_out)
-                resp_text = data.get("response", "")
-                if isinstance(resp_text, str) and resp_text.strip().startswith("{"):
-                    return json.loads(resp_text)
-                return data
-            except json.JSONDecodeError:
-                log_event(f"AI Call JSON Decode Error: {raw_out[:100]}")
-        else:
-            log_event(f"AI Call Failed with code {res.returncode}. Output: {res.stderr[:100]}")
-    except Exception as e:
-        log_event(f"AI Call Exception: {e}")
-    return None
+    data, _ = call_ai_json_with_fallback(
+        prompt,
+        ["gemini-3-flash-preview", "gemini-2.5-flash", "gemini-3.1-flash-lite-preview"],
+        name="SentimentOracle",
+        log_func=log_event,
+        category="sentiment",
+    )
+    return data
 
-def fetch_rss_news(ticker):
-    # Упрощенная эмуляция сбора новостей через RSS-фиды (БКС, Смарт-Лаб)
-    # В реальной реализации здесь будет запрос к SearXNG или RSS
-    # Для стабильности мы генерируем запрос к AI на анализ последних трендов из его базы знаний
-    return f"Найди последние новости и оценки по акциям {ticker} на Московской бирже (сегодня). Если новостей нет, оцени общую фундаментальную картину."
+def fresh_tickers(cur, tickers):
+    min_interval = int(os.getenv("AI_SENTIMENT_MIN_INTERVAL_MINUTES", "180"))
+    if os.getenv("AI_SENTIMENT_FORCE", "0") == "1":
+        return set()
+    cur.execute(
+        """
+        SELECT secid
+        FROM analytics.market_sentiment
+        WHERE secid = ANY(%s)
+          AND updated_at > now() - (%s || ' minutes')::interval
+        """,
+        (tickers, min_interval),
+    )
+    return {row[0] for row in cur.fetchall()}
+
+def normalize_batch_result(result):
+    if not isinstance(result, dict):
+        return []
+    raw_items = result.get("items") or result.get("sentiments") or []
+    if isinstance(raw_items, dict):
+        raw_items = [{"secid": secid, **payload} for secid, payload in raw_items.items() if isinstance(payload, dict)]
+    items = []
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+        secid = str(item.get("secid") or item.get("ticker") or "").upper().strip()
+        if not secid:
+            continue
+        try:
+            score = max(-1.0, min(1.0, float(item.get("score", 0))))
+        except Exception:
+            score = 0.0
+        summary = str(item.get("summary") or "Neutral baseline sentiment.")[:500]
+        items.append({"secid": secid, "score": score, "summary": summary})
+    return items
 
 def update_sentiment():
     log_event("Starting Sentiment Oracle cycle...")
@@ -57,40 +74,52 @@ def update_sentiment():
     
     # Топ-активы, которые мы отслеживаем
     TICKERS = ["SBER", "GAZP", "LKOH", "ROSN", "YNDX", "TCSG", "GMKN", "CHMF", "AFLT", "MGNT"]
-    
-    for secid in TICKERS:
-        news_query = fetch_rss_news(secid)
-        prompt = f"""
-        Act as a Wall Street Sentiment Oracle. 
-        Analyze the current fundamental and news background for the Russian stock: {secid}.
-        News context: {news_query}
-        
-        TASK:
-        1. Score the current sentiment from -1.0 (Very Bearish, bad news, panic) to 1.0 (Very Bullish, great reports, growth).
-        2. Provide a 1-sentence summary of why.
-        
-        Respond ONLY raw JSON: {{"score": float, "summary": "string"}}
-        """
-        
-        result = call_ai(prompt)
-        time.sleep(15) # Пауза 15 сек для обхода Rate Limit
-        if result and "score" in result:
-            score = float(result["score"])
-            summary = result.get("summary", "No summary")
-            
-            cur.execute("""
-                INSERT INTO analytics.market_sentiment (secid, score, summary, updated_at)
-                VALUES (%s, %s, %s, NOW())
-                ON CONFLICT (secid) DO UPDATE SET
-                    score = EXCLUDED.score,
-                    summary = EXCLUDED.summary,
-                    updated_at = NOW()
-            """, (secid, score, summary))
-            
-            log_event(f"[SENTIMENT] {secid}: Score {score:+.2f} | {summary}")
-            
+    max_tickers = int(os.getenv("AI_SENTIMENT_MAX_TICKERS", "0") or "0")
+    if max_tickers > 0:
+        TICKERS = TICKERS[:max_tickers]
+
+    fresh = fresh_tickers(cur, TICKERS)
+    due = [secid for secid in TICKERS if secid not in fresh]
+    if not due:
+        log_event("Sentiment Oracle skipped: all tracked tickers are fresh.")
+        cur.close(); conn.close()
+        return
+
+    prompt = f"""
+    ROLE: MOEX sentiment analyst.
+    TICKERS: {json.dumps(due, ensure_ascii=False)}
+
+    TASK:
+    Estimate baseline sentiment for each ticker from -1.0 (bearish) to 1.0 (bullish).
+    Use only stable, broad market/fundamental knowledge and the ticker list. Do not browse, do not claim fresh news.
+    Keep summaries short and clearly mark uncertainty when current news is unavailable.
+
+    Respond ONLY raw JSON:
+    {{"items": [{{"secid": "SBER", "score": 0.0, "summary": "short reason"}}]}}
+    """
+
+    result = None if os.getenv("AI_SENTIMENT_DRY_RUN", "0") == "1" else call_ai(prompt)
+    items = normalize_batch_result(result)
+    if os.getenv("AI_SENTIMENT_DRY_RUN", "0") == "1":
+        log_event(f"AI_SENTIMENT_DRY_RUN=1: would update {len(due)} tickers in one batch.")
+        cur.close(); conn.close()
+        return
+
+    for item in items:
+        if item["secid"] not in due:
+            continue
+        cur.execute("""
+            INSERT INTO analytics.market_sentiment (secid, score, summary, updated_at)
+            VALUES (%s, %s, %s, NOW())
+            ON CONFLICT (secid) DO UPDATE SET
+                score = EXCLUDED.score,
+                summary = EXCLUDED.summary,
+                updated_at = NOW()
+        """, (item["secid"], item["score"], item["summary"]))
+        log_event(f"[SENTIMENT] {item['secid']}: Score {item['score']:+.2f} | {item['summary']}")
+
     conn.commit(); cur.close(); conn.close()
-    log_event("Sentiment Oracle cycle complete.")
+    log_event(f"Sentiment Oracle cycle complete: updated={len(items)}, due={len(due)}, fresh={len(fresh)}.")
 
 if __name__ == "__main__":
     update_sentiment()

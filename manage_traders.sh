@@ -93,7 +93,10 @@ start_all() {
     
     echo "Starting all AI Traders (Debug: $DEBUG)..."
     for TRADER in $(get_traders); do
+        if [ "$TRADER" = "hourly_report" ] || [ "$TRADER" = "matching_engine" ]; then continue; fi
         start_trader "$TRADER" "$DEBUG"
+        echo "[ WAIT ] Sleeping 15s to stagger load..."
+        sleep 20
     done
 
     echo "Starting Hourly Report Worker..."

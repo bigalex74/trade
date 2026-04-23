@@ -136,7 +136,7 @@ def synthesize_strategies():
             filename = f"strategy_alpha_{datetime.now().strftime('%Y-%m-%d')}.md"
             with open(filename, "w") as f: f.write(alpha_report)
             upload_file_to_algo_kb(filename, log_func=print)
-            send_telegram_status(f"🧠 <b>INCUBATOR COMPLETED</b>\nStrategic Alpha for {datetime.now().strftime('%Y-%m-%d')} generated.")
+            send_telegram_status(f"🧠 <b>ИНКУБАТОР СТРАТЕГИЙ ЗАВЕРШЕН</b>\nStrategic Alpha за {datetime.now().strftime('%Y-%m-%d')} сформирован.")
     except Exception as e:
         print(f"Incubation failed: {e}")
 

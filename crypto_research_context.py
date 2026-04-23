@@ -19,7 +19,8 @@ SELECT
     hour_change_pct,
     five_min_change_pct,
     updated_at,
-    windows
+    windows,
+    engine
 FROM analytics.trader_market_context_v
 WHERE active = TRUE
 ORDER BY secid
@@ -56,7 +57,7 @@ def load_market_context(conn=None):
             rows = cur.fetchall()
 
         context = {}
-        for secid, instrument_group, issuer_name, current_price, day_change_pct, hour_change_pct, five_min_change_pct, updated_at, windows in rows:
+        for secid, instrument_group, issuer_name, current_price, day_change_pct, hour_change_pct, five_min_change_pct, updated_at, windows, engine in rows:
             day_change = _to_float(day_change_pct)
             hour_change = _to_float(hour_change_pct)
             five_min_change = _to_float(five_min_change_pct)
@@ -75,6 +76,7 @@ def load_market_context(conn=None):
                 "five_min_change": five_min_change,
                 "instrument_group": instrument_group,
                 "issuer_name": issuer_name,
+                "engine": engine,
                 "updated_at": updated_at.isoformat() if updated_at else None,
                 "windows": _normalize_windows(windows),
             }

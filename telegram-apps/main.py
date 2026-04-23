@@ -118,6 +118,22 @@ async def get_prompt_history(prompt_id: int):
     conn.close()
     return data
 
+async def get_global_risk():
+    """Запрашивает уровень риска из базы знаний ALGO."""
+    url = "http://localhost:9624/query"
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(url, json={"query": "Summary of current global market risk level (GREEN, YELLOW, ORANGE, RED).", "mode": "hybrid"}, 
+                                    auth=('bigalex', 'qQ08102003'), timeout=5.0)
+            if resp.status_code == 200:
+                text = resp.json().get("response", "GREEN").upper()
+                if "RED" in text: return "RED", True
+                if "ORANGE" in text: return "ORANGE", True
+                if "YELLOW" in text: return "YELLOW", False
+                return "GREEN", False
+    except: pass
+    return "UNKNOWN", False
+
 @app.get("/api/trade/league")
 async def get_trade_league(division: str = "moex"):
     try:
@@ -128,34 +144,25 @@ async def get_trade_league(division: str = "moex"):
         conn = psycopg2.connect(**config)
         cur = conn.cursor(cursor_factory=RealDictCursor)
         
+        # 1. Портфели и память
         cur.execute("SELECT p.trader_name, p.cash_balance, c.learned_traits as memory FROM trading.portfolio p LEFT JOIN trading.trader_config c ON p.trader_name = c.trader_name ORDER BY p.trader_name")
         portfolios = cur.fetchall()
         
+        # 2. Открытые позиции
         cur.execute("SELECT trader_name, secid, quantity, avg_entry_price FROM trading.position WHERE quantity != 0")
         positions = cur.fetchall()
-        
-        cur.execute("SELECT trader_name, secid, action, quantity, price, created_at FROM trading.journal ORDER BY created_at DESC LIMIT 10")
-        journal = cur.fetchall()
-        
-        cur.execute("SELECT id, trader_name, secid, order_type, quantity, target_price FROM trading.orders WHERE status = 'PENDING'")
-        orders = cur.fetchall()
-        
-        cur.execute("SELECT secid, score, summary FROM analytics.market_sentiment")
-        sentiment = cur.fetchall()
 
-        # 6. Список активных инструментов
-        cur.execute("SELECT secid, issuer_name FROM ref.instrument WHERE active = true")
-        instruments = cur.fetchall()
+        # 3. Глобальный риск из KB
+        risk_level, storm_active = await get_global_risk()
         
         cur.close(); conn.close()
         return {
             "division": division,
             "traders": portfolios, 
-            "positions": positions, 
-            "journal": journal, 
-            "orders": orders, 
-            "sentiment": sentiment,
-            "instruments": instruments
+            "positions": positions,
+            "risk": risk_level,
+            "storm_mode": storm_active,
+            "server_time": datetime.now().strftime("%H:%M:%S")
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

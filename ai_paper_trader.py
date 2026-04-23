@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import psycopg2, json, subprocess, os, requests, sys, html
+import psycopg2, json, os, requests, sys, html
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
@@ -8,6 +8,10 @@ if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(line_buffering=True)
 
 from market_research_context import build_price_snapshot, compact_context_payload, load_market_context
+from gemini_cli_runner import call_ai_json_with_fallback
+from risk_engine import RiskSettings, review_actions
+from trader_consensus import load_weighted_consensus
+from trading_feature_contract import build_trader_market_payload, payload_stats
 
 # CONFIG
 DB_CONFIG = {
@@ -112,52 +116,17 @@ def build_trader_report_message(trader_name, report):
     if report["positions_preview"]: lines.append(f"Портфель: {html.escape(report['positions_preview'])}")
     return "\n".join(lines)
 
-def notify_model_switch(current_model, next_model, reason, trader_name=None):
-    trader_label = trader_name or "AI Trader"
-    next_label = next_model or "нет следующей модели"
-    log_event(f"[{trader_label}] Переключение модели: {current_model} -> {next_label}. Причина: {reason}")
-    send_telegram(f"⚠️ <b>{html.escape(trader_label)}</b>: переключение модели\n<code>{html.escape(current_model)}</code> → <code>{html.escape(next_label)}</code>\nПричина: {html.escape(reason)}")
-
-def is_capacity_error(stdout, stderr):
-    output = (stdout or "") + (stderr or "")
-    return any(x in output.lower() for x in ["capacity", "overloaded", "quota", "exhausted", "429"])
-
 def call_ai_with_fallback(prompt, models_rank, trader_name=None):
-    # Динамически загружаем все доступные модели из рейтинга
-    preferred_models = [m['id'] for m in models_rank]
-    # Всегда добавляем локальную Ollama как самый последний резерв
-    if "ollama/llama3.2" not in preferred_models:
-        preferred_models.append("ollama/llama3.2")
-
-    for index, model_id in enumerate(preferred_models):
-        next_model = preferred_models[index + 1] if index + 1 < len(preferred_models) else None
-        
-        if model_id.startswith("ollama/"):
-            ollama_name = model_id.replace("ollama/", "")
-            try:
-                res = subprocess.run(["ollama", "run", ollama_name, prompt], capture_output=True, text=True, timeout=180)
-                if res.returncode == 0 and "{" in res.stdout:
-                    json_str = res.stdout[res.stdout.find("{"):res.stdout.rfind("}")+1]
-                    return json.loads(json_str), model_id
-                else: continue
-            except: continue
-
-        cmd = ["gemini", "-p", prompt, "--model", model_id, "--output-format", "json", "--approval-mode", "yolo"]
-        try:
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
-            if is_capacity_error(res.stdout, res.stderr):
-                notify_model_switch(model_id, next_model, "исчерпана квота", trader_name=trader_name); continue
-            if res.returncode != 0: continue
-            raw_out = res.stdout
-            if "```json" in raw_out: raw_out = raw_out.split("```json")[1].split("```")[0]
-            try:
-                data = json.loads(raw_out)
-                resp_text = data.get("response", "")
-                if isinstance(resp_text, str) and resp_text.strip().startswith("{"): return json.loads(resp_text), model_id
-                return data, model_id
-            except: continue
-        except: continue
-    return None, None
+    preferred_models = [m["id"] if isinstance(m, dict) else str(m) for m in models_rank]
+    return call_ai_json_with_fallback(
+        prompt,
+        models=preferred_models,
+        name=trader_name or "AI Trader",
+        log_func=log_event,
+        include_ollama=True,
+        category="trader",
+        trader_name=trader_name,
+    )
 
 # SECTOR MAPPING FOR CORRELATION PROTECTION
 SECTOR_MAP = {
@@ -172,7 +141,7 @@ SECTOR_MAP = {
     "MTSS": "TELECOM", "IRAO": "ENERGY", "FEES": "ENERGY",
 }
 
-def execute_trade_actions(trader_name, actions, current_cash, snapshots, model_id):
+def _legacy_execute_trade_actions(trader_name, actions, current_cash, snapshots, model_id):
     if not actions: return
     conn = get_db_connection(); cur = conn.cursor()
     
@@ -327,6 +296,64 @@ def execute_trade_actions(trader_name, actions, current_cash, snapshots, model_i
 
     conn.commit(); cur.close(); conn.close()
 
+def _env_enabled(name):
+    return os.getenv(name, "0").lower() in {"1", "true", "yes", "on"}
+
+def execute_trade_actions(trader_name, actions, current_cash, snapshots, model_id, market_features=None):
+    conn = get_db_connection()
+    try:
+        review = review_actions(
+            conn,
+            trader_name,
+            actions or [],
+            snapshots,
+            market_features or {},
+            settings=RiskSettings.from_env(),
+        )
+        accepted = review.get("accepted", [])
+        rejected = review.get("rejected", [])
+        log_event(f"[{trader_name}] Risk review: accepted={len(accepted)} rejected={len(rejected)} state={review.get('state')}")
+        for item in rejected[:5]:
+            action = item.get("action") or {}
+            log_event(f"[{trader_name}] Risk rejected {action.get('action')} {action.get('secid')}: {item.get('reason')}")
+
+        if _env_enabled("AI_TRADER_DRY_RUN"):
+            conn.rollback()
+            log_event(f"[{trader_name}] DRY RUN: orders were not written.")
+            return review
+
+        cur = conn.cursor()
+        for order in accepted:
+            cur.execute(
+                """
+                INSERT INTO trading.orders
+                    (trader_name, secid, order_type, quantity, target_price, status, model_id, reason, created_at)
+                VALUES (%s, %s, %s, %s, %s, 'PENDING', %s, %s, NOW())
+                """,
+                (
+                    trader_name,
+                    order["secid"],
+                    order["order_type"],
+                    order["quantity"],
+                    order["target_price"],
+                    model_id,
+                    order.get("reason", ""),
+                ),
+            )
+            log_event(
+                f"[{trader_name}] PLACED ORDER: {order['order_type']} "
+                f"{order['secid']} x{order['quantity']} @{order['target_price']}"
+            )
+        cur.close()
+        conn.commit()
+        return review
+    except Exception as e:
+        conn.rollback()
+        log_event(f"[{trader_name}] Risk/order processing failed: {e}")
+        return None
+    finally:
+        conn.close()
+
 def main():
     if len(sys.argv) < 2 or sys.argv[1] not in TRADERS_DATA: return
     name = sys.argv[1]
@@ -355,15 +382,16 @@ def main():
         cur.execute("SELECT trader_name, action, secid, created_at FROM trading.journal WHERE created_at > now() - interval '1 hour' ORDER BY created_at DESC LIMIT 20")
         league_recent_trades = " | ".join([f"[{r[3].strftime('%H:%M')}] {r[0]} {r[1]} {r[2]}" for r in cur.fetchall()])
 
-    # Загружаем сентимент
-    filtered_market = {ticker: compact_context_payload(stock_context[ticker]) for ticker in sorted(relevant_ids) if ticker in stock_context}
+    filtered_market = build_trader_market_payload(stock_context, name)
     cur.execute("SELECT secid, score, summary FROM analytics.market_sentiment")
     sentiment_data = {r[0]: {"score": float(r[1]), "summary": r[2]} for r in cur.fetchall()}
 
     total_stocks = 0; above_sma50 = 0
     for secid, data in sentiment_data.items():
         if secid in filtered_market:
-            filtered_market[secid]["sentiment"] = data
+            filtered_market[secid]["sent_score"] = data["score"]
+            if data.get("summary"):
+                filtered_market[secid]["sent"] = str(data["summary"])[:160]
         if secid in snapshots:
             snapshots[secid]["sentiment"] = data
 
@@ -381,7 +409,12 @@ def main():
     elif market_breadth > 70.0: market_regime = "BULL MARKET (Favorable for Longs)"
     else: market_regime = "SIDEWAYS / MIXED MARKET"
 
+    league_ratings = []
+    if name == "Meta_Oracle":
+        league_ratings = load_weighted_consensus(conn, limit=10)
+
     cur.close(); conn.close()
+    log_event(f"[{name}] Market features: {payload_stats(filtered_market)}")
 
     EXPERT_GUIDES = {
 
@@ -402,7 +435,7 @@ def main():
         f"MARKET REGIME: {market_regime} ({market_breadth:.1f}% stocks > SMA50). Adjust actions accordingly.",
         f"Portfolio (with PnL): {json.dumps(positions)}.", f"Recent History: {'; '.join(recent_history)}.",
         f"Macro: {json.dumps(compact_context_payload(market_context.get('USD000UTSTOM')))}.",
-        f"MARKET DATA: {json.dumps(filtered_market)}.",
+        f"MARKET FEATURES: {json.dumps(filtered_market, ensure_ascii=False, separators=(',', ':'))}.",
         f"STRATEGIC GUIDELINE: {EXPERT_GUIDES.get(name, 'Use all indicators to maximize profit.')}",
         f"LEAGUE TRADES (For Oracle): {league_recent_trades}" if name == "Meta_Oracle" else "",
         f"LEAGUE RATINGS (For Oracle): {league_ratings}. Give more weight to signals from agents with higher activity/volume." if name == "Meta_Oracle" else "",
@@ -413,7 +446,7 @@ def main():
     prompt = " ".join(prompt_parts)
     decisions, used_model = call_ai_with_fallback(prompt, models, trader_name=name)
     if decisions is not None:
-        execute_trade_actions(name, decisions.get("actions", []), cash, snapshots, used_model)
+        execute_trade_actions(name, decisions.get("actions", []), cash, snapshots, used_model, market_features=filtered_market)
     else: send_telegram(f"🔴 <b>{name}</b>: Ошибка! Все AI модели недоступны.")
 
 if __name__ == "__main__": main()
