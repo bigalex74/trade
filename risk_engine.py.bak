@@ -163,11 +163,6 @@ def load_risk_state(conn, trader_name: str, prices: dict[str, float], settings: 
     filled_today = _int(cur.fetchone()[0])
     pending_count = len(pending_orders)
 
-    # Умный расчет дневной активности:
-    # Исключаем из общего лимита попытки, которые не привели к PENDING ордеру (например, отклоненные ИИ-вызовом ранее)
-    # day_action_count теперь отражает только РЕАЛЬНОЕ давление на лимит (исполненные + ждущие исполнения)
-    day_action_count = filled_today + pending_count
-
     loss_streak, last_loss_at = _loss_streak(cur, trader_name, settings)
     cur.close()
 
@@ -199,7 +194,7 @@ def load_risk_state(conn, trader_name: str, prices: dict[str, float], settings: 
         "pending_sell_qty": pending_sell_qty,
         "pending_count": pending_count,
         "filled_today": filled_today,
-        "day_action_count": day_action_count,
+        "day_action_count": filled_today + pending_count,
         "loss_streak": loss_streak,
         "cooldown_active": cooldown_active,
     }
