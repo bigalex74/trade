@@ -89,12 +89,13 @@ def normalize_prices(snaps: dict[str, Any], market_features: dict[str, dict[str,
 def _loss_streak(cur, trader_name: str, settings: RiskSettings) -> tuple[int, datetime | None]:
     if settings.cooldown_losses <= 0:
         return 0, None
+    # Оптимизировано: используем новую колонку is_win и индекс idx_journal_is_win
     cur.execute(
         """
         SELECT is_win, created_at
-        FROM trading.trader_trade_outcomes_v
+        FROM trading.journal
         WHERE trader_name = %s
-          AND approx_realized_pnl IS NOT NULL
+          AND is_win IS NOT NULL
         ORDER BY created_at DESC
         LIMIT %s
         """,
