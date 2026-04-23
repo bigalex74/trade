@@ -212,6 +212,32 @@ class EmbeddingClient:
         self.provider = provider
         self._fastembed_model = None
         self._dimension: int | None = None
+        self.cache_dir = "/tmp/trading_cache/embeddings"
+        self.cache_ttl_seconds = 600  # 10 минут
+
+    def _get_cache_path(self, text: str) -> str:
+        text_hash = hashlib.md5(text.encode("utf-8")).hexdigest()
+        return os.path.join(self.cache_dir, f"{self.provider}_{text_hash}.json")
+
+    def _load_from_cache(self, cache_path: str) -> list[float] | None:
+        if not os.path.exists(cache_path):
+            return None
+        try:
+            mtime = os.path.getmtime(cache_path)
+            if time.time() - mtime > self.cache_ttl_seconds:
+                return None
+            with open(cache_path, "r") as f:
+                return json.load(f)
+        except Exception:
+            return None
+
+    def _save_to_cache(self, cache_path: str, vector: list[float]) -> None:
+        try:
+            os.makedirs(self.cache_dir, exist_ok=True)
+            with open(cache_path, "w") as f:
+                json.dump(vector, f)
+        except Exception:
+            pass
 
     @property
     def model_id(self) -> str:
@@ -227,11 +253,23 @@ class EmbeddingClient:
 
     def embed(self, text: str) -> list[float]:
         clean_text = _truncate(text, MAX_EMBED_TEXT_CHARS)
+        
+        # Попытка загрузки из кеша
+        cache_path = self._get_cache_path(clean_text)
+        cached_vector = self._load_from_cache(cache_path)
+        if cached_vector:
+            return cached_vector
+
         if self.provider == "hash":
-            return self._hash_embedding(clean_text)
-        if self.provider == "fastembed":
-            return self._fastembed_embedding(clean_text)
-        return self._ollama_embedding(clean_text)
+            vector = self._hash_embedding(clean_text)
+        elif self.provider == "fastembed":
+            vector = self._fastembed_embedding(clean_text)
+        else:
+            vector = self._ollama_embedding(clean_text)
+        
+        # Сохранение в кеш
+        self._save_to_cache(cache_path, vector)
+        return vector
 
     def _ollama_embedding(self, text: str) -> list[float]:
         response = requests.post(
