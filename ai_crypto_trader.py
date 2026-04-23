@@ -64,7 +64,8 @@ def send_telegram(message):
     try:
         proxies = {"http": "http://127.0.0.1:10808", "https": "http://127.0.0.1:10808"}
         requests.post(url, json=payload, proxies=proxies, timeout=10)
-    except: pass
+    except Exception as exc:
+        print(f"Telegram notification failed: {exc}")
 
 def format_money(val): return f"{float(val):,.2f}"
 def format_pct(val): return f"{float(val):+.2f}%"
