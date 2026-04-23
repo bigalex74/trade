@@ -7,7 +7,6 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional
-from contextlib import closing
 
 import psycopg2
 
@@ -245,47 +244,49 @@ def model_unhealthy_reason(model_id: str, category: str) -> Optional[str]:
     if not enabled():
         return None
     try:
-        with closing(connect()) as conn:
-            ensure_schema(conn)
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    DELETE FROM trading.ai_model_cooldown
-                    WHERE unavailable_until <= clock_timestamp()
-                    """
-                )
-                cur.execute(
-                    """
-                    SELECT unavailable_until, reason, failure_status, failure_count
-                    FROM trading.ai_model_cooldown
-                    WHERE model_id = %s
-                      AND category = %s
-                      AND unavailable_until > clock_timestamp()
-                    LIMIT 1
-                    """,
-                    (model_id, category),
-                )
-                row = cur.fetchone()
-                if row:
-                    until, reason, status, failures = row
-                    conn.commit()
-                    return f"cooldown until {until.isoformat()} after {status}/{reason}, failures={failures}"
+        conn = connect()
+        ensure_schema(conn)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                DELETE FROM trading.ai_model_cooldown
+                WHERE unavailable_until <= clock_timestamp()
+                """
+            )
+            cur.execute(
+                """
+                SELECT unavailable_until, reason, failure_status, failure_count
+                FROM trading.ai_model_cooldown
+                WHERE model_id = %s
+                  AND category = %s
+                  AND unavailable_until > clock_timestamp()
+                LIMIT 1
+                """,
+                (model_id, category),
+            )
+            row = cur.fetchone()
+            if row:
+                until, reason, status, failures = row
+                conn.commit()
+                conn.close()
+                return f"cooldown until {until.isoformat()} after {status}/{reason}, failures={failures}"
 
-                threshold = int(os.getenv("AI_MODEL_FAILURE_THRESHOLD", "3"))
-                window_minutes = int(os.getenv("AI_MODEL_HEALTH_WINDOW_MINUTES", "30"))
-                cur.execute(
-                    """
-                    SELECT count(*)
-                    FROM trading.ai_call_log
-                    WHERE model_id = %s
-                      AND category = %s
-                      AND status = ANY(%s)
-                      AND created_at > clock_timestamp() - (%s || ' minutes')::interval
-                    """,
-                    (model_id, category, list(FAILURE_STATUSES), window_minutes),
-                )
-                failures = cur.fetchone()[0]
-            conn.commit()
+            threshold = int(os.getenv("AI_MODEL_FAILURE_THRESHOLD", "3"))
+            window_minutes = int(os.getenv("AI_MODEL_HEALTH_WINDOW_MINUTES", "30"))
+            cur.execute(
+                """
+                SELECT count(*)
+                FROM trading.ai_call_log
+                WHERE model_id = %s
+                  AND category = %s
+                  AND status = ANY(%s)
+                  AND created_at > clock_timestamp() - (%s || ' minutes')::interval
+                """,
+                (model_id, category, list(FAILURE_STATUSES), window_minutes),
+            )
+            failures = cur.fetchone()[0]
+        conn.commit()
+        conn.close()
         if failures >= threshold:
             return f"recent failures above threshold: {failures}>={threshold} in {window_minutes}m"
         return None
@@ -315,21 +316,22 @@ def preflight(prompt: str, category: str, *, call_name: Optional[str] = None, tr
         return GuardDecision(False, f"prompt too large: {prompt_chars}>{limit}")
 
     try:
-        with closing(connect()) as conn:
-            ensure_schema(conn)
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT count(*)
-                    FROM trading.ai_call_log
-                    WHERE category = %s
-                      AND request_allowed = TRUE
-                      AND status NOT IN ('model_skipped', 'budget_blocked')
-                      AND created_at > clock_timestamp() - interval '1 hour'
-                    """,
-                    (category,),
-                )
-                count = cur.fetchone()[0]
+        conn = connect()
+        ensure_schema(conn)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT count(*)
+                FROM trading.ai_call_log
+                WHERE category = %s
+                  AND request_allowed = TRUE
+                  AND status NOT IN ('model_skipped', 'budget_blocked')
+                  AND created_at > clock_timestamp() - interval '1 hour'
+                """,
+                (category,),
+            )
+            count = cur.fetchone()[0]
+        conn.close()
     except Exception as exc:
         # If accounting storage is briefly unavailable, do not break trading.
         return GuardDecision(True, f"guard accounting unavailable: {type(exc).__name__}: {exc}")
@@ -392,16 +394,60 @@ def log_call(
     if not enabled():
         return
     try:
-        with closing(connect()) as conn:
-            ensure_schema(conn)
-            with conn.cursor() as cur:
+        conn = connect()
+        ensure_schema(conn)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO trading.ai_call_log
+                    (script_name, call_name, trader_name, category, model_id,
+                     prompt_chars, prompt_tokens_est, response_chars, duration_seconds,
+                     status, error_class, error, fallback_index, request_allowed)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    os.path.basename(os.getenv("AI_CALL_SCRIPT", "") or sys.argv[0]) or None,
+                    call_name,
+                    trader_name,
+                    category,
+                    model_id,
+                    len(prompt or ""),
+                    estimate_tokens(prompt or ""),
+                    len(response or ""),
+                    duration_seconds,
+                    status,
+                    error_class,
+                    (error or "")[:1000] if error else None,
+                    fallback_index,
+                    request_allowed,
+                ),
+            )
+            register_model_cooldown(
+                cur,
+                model_id=model_id,
+                category=category,
+                status=status,
+                error_class=error_class,
+                error=error,
+            )
+            if model_id and status == "success":
                 cur.execute(
                     """
-                    INSERT INTO trading.ai_call_log
-                        (script_name, call_name, trader_name, category, model_id,
-                         prompt_chars, prompt_tokens_est, response_chars, duration_seconds,
-                         status, error_class, error, fallback_index, request_allowed)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    DELETE FROM trading.ai_model_cooldown
+                    WHERE model_id = %s
+                      AND category = %s
+                    """,
+                    (model_id, category),
+                )
+            if debug_io_enabled():
+                prompt_text, prompt_truncated = debug_clip(prompt or "")
+                response_text, response_truncated = debug_clip(response or "")
+                cur.execute(
+                    """
+                    INSERT INTO trading.ai_io_debug_log
+                        (script_name, call_name, trader_name, category, model_id, status,
+                         prompt_chars, response_chars, prompt_text, response_text, truncated)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     """,
                     (
                         os.path.basename(os.getenv("AI_CALL_SCRIPT", "") or sys.argv[0]) or None,
@@ -409,59 +455,16 @@ def log_call(
                         trader_name,
                         category,
                         model_id,
-                        len(prompt or ""),
-                        estimate_tokens(prompt or ""),
-                        len(response or ""),
-                        duration_seconds,
                         status,
-                        error_class,
-                        (error or "")[:1000] if error else None,
-                        fallback_index,
-                        request_allowed,
+                        len(prompt or ""),
+                        len(response or ""),
+                        prompt_text,
+                        response_text,
+                        prompt_truncated or response_truncated,
                     ),
                 )
-                register_model_cooldown(
-                    cur,
-                    model_id=model_id,
-                    category=category,
-                    status=status,
-                    error_class=error_class,
-                    error=error,
-                )
-                if model_id and status == "success":
-                    cur.execute(
-                        """
-                        DELETE FROM trading.ai_model_cooldown
-                        WHERE model_id = %s
-                          AND category = %s
-                        """,
-                        (model_id, category),
-                    )
-                if debug_io_enabled():
-                    prompt_text, prompt_truncated = debug_clip(prompt or "")
-                    response_text, response_truncated = debug_clip(response or "")
-                    cur.execute(
-                        """
-                        INSERT INTO trading.ai_io_debug_log
-                            (script_name, call_name, trader_name, category, model_id, status,
-                             prompt_chars, response_chars, prompt_text, response_text, truncated)
-                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                        """,
-                        (
-                            os.path.basename(os.getenv("AI_CALL_SCRIPT", "") or sys.argv[0]) or None,
-                            call_name,
-                            trader_name,
-                            category,
-                            model_id,
-                            status,
-                            len(prompt or ""),
-                            len(response or ""),
-                            prompt_text,
-                            response_text,
-                            prompt_truncated or response_truncated,
-                        ),
-                    )
-            conn.commit()
+        conn.commit()
+        conn.close()
     except Exception:
         return
 
