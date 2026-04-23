@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Small client for the local ALGO LightRAG instance."""
+"""Small client for the local LightRAG knowledge bases.
+
+Routing rule:
+- ALGO KB is only for trader-facing market, strategy, risk, and trading context.
+- GENERAL KB is for operational notes, repo changes, task recovery, and Codex context.
+"""
 
 from __future__ import annotations
 
