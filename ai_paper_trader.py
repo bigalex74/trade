@@ -43,6 +43,13 @@ TRADERS_DATA = {
     "Meta_Oracle": {"strategy": "Collective Mind. You analyze the actions of the other 10 AI agents. You buy ONLY when multiple independent algorithms buy the same asset.", "query": "Ensemble trading strategies and consensus"}
 }
 
+def log_event(msg):
+    with open(LOG_FILE, "a") as f:
+        f.write(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}\n")
+    print(msg)
+
+def get_db_connection(): return psycopg2.connect(**DB_CONFIG)
+
 def send_telegram(message):
     if not TELEGRAM_TOKEN: return
     
