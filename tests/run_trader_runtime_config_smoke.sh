@@ -7,6 +7,7 @@ cd "$PROJECT_DIR"
 echo "[1/2] Проверка runtime-настроек трейдеров"
 
 grep -q 'export GEMINI_CONCURRENCY="${GEMINI_CONCURRENCY:-1}"' run_ai_trader_once.sh
+grep -q 'export GEMINI_ATTEMPT_TIMEOUT_SECONDS_TRADER="${GEMINI_ATTEMPT_TIMEOUT_SECONDS_TRADER:-60}"' run_ai_trader_once.sh
 grep -q 'export AI_MODEL_COOLDOWN_TIMEOUT_MINUTES_TRADER="${AI_MODEL_COOLDOWN_TIMEOUT_MINUTES_TRADER:-0}"' run_ai_trader_once.sh
 grep -q 'export GEMINI_CONCURRENCY="${GEMINI_CONCURRENCY:-1}"' run_ai_job_dispatcher.sh
 
