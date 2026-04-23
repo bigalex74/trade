@@ -116,11 +116,25 @@ def _strip_code_fence(text):
 
 
 def parse_json_response(stdout):
-    data = json.loads((stdout or "").strip())
-    if isinstance(data, dict) and "response" in data:
-        response = _strip_code_fence(data.get("response", ""))
-        return json.loads(response)
-    return data
+    raw_text = (stdout or "").strip()
+    if not raw_text:
+        raise ValueError("Empty AI response")
+        
+    # Пытаемся найти границы JSON объекта { ... }
+    first_brace = raw_text.find('{')
+    last_brace = raw_text.rfind('}')
+    
+    if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+        json_str = raw_text[first_brace:last_brace + 1]
+        try:
+            return json.loads(json_str)
+        except json.JSONDecodeError:
+            # Если прямой парсинг не удался, пробуем очистить от markdown и повторить
+            json_str = _strip_code_fence(json_str)
+            return json.loads(json_str)
+            
+    # Если скобки не найдены, пробуем распарсить как есть (возможно это прямой JSON список или примитив)
+    return json.loads(raw_text)
 
 
 def call_gemini_with_fallback(
@@ -316,7 +330,22 @@ def call_gemini_with_fallback(
                     continue
                 if output_format == "json":
                     try:
-                        data = parse_json_response(res.stdout)
+                        # Попытка парсинга с возможностью одного локального ретрая при ошибке формата
+                        try:
+                            data = parse_json_response(res.stdout)
+                        except Exception:
+                            # Локальный ретрай для этой же модели при ошибке парсинга
+                            if log_func:
+                                log_func(f"[{name or 'AI'}] Model {model_id} JSON error, retrying once...")
+                            res = subprocess.run(
+                                cmd,
+                                capture_output=True,
+                                text=True,
+                                timeout=attempt_timeout,
+                                env=_gemini_env(),
+                                cwd=GEMINI_WORKDIR,
+                            )
+                            data = parse_json_response(res.stdout)
                     except Exception as exc:
                         ai_cost_guard.log_call(
                             category=category,
@@ -332,7 +361,7 @@ def call_gemini_with_fallback(
                             fallback_index=fallback_index,
                         )
                         if log_func:
-                            log_func(f"[{name or 'AI'}] Model {model_id} JSON parse failed: {type(exc).__name__}: {exc}")
+                            log_func(f"[{name or 'AI'}] Model {model_id} JSON parse failed after retry: {type(exc).__name__}")
                         continue
                     ai_cost_guard.log_call(
                         category=category,
