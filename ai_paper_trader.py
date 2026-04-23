@@ -126,7 +126,7 @@ def call_ai_with_fallback(prompt, models_rank, trader_name=None):
         models=preferred_models,
         name=trader_name or "AI Trader",
         log_func=log_event,
-        include_ollama=True,
+        include_ollama=False,
         category="trader",
         trader_name=trader_name,
     )

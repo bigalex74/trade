@@ -6,10 +6,30 @@ cd "$PROJECT_DIR"
 
 PYTHON_BIN="${PYTHON_BIN:-/home/user/trading_venv/bin/python}"
 
-echo "[1/2] Python compile"
+echo "[1/3] Python compile"
 "$PYTHON_BIN" -m py_compile gemini_cli_runner.py ai_cost_guard.py ai_paper_trader.py tests/fake_gemini_cli.py
 
-echo "[2/2] Timeout fallback continues to next model"
+echo "[2/3] MOEX trader fallback does not include ollama"
+"$PYTHON_BIN" - <<'PY'
+import ast
+from pathlib import Path
+
+tree = ast.parse(Path("ai_paper_trader.py").read_text())
+for node in ast.walk(tree):
+    if not isinstance(node, ast.Call):
+        continue
+    if not isinstance(node.func, ast.Name) or node.func.id != "call_ai_json_with_fallback":
+        continue
+    for keyword in node.keywords:
+        if keyword.arg == "include_ollama":
+            if not isinstance(keyword.value, ast.Constant) or keyword.value.value is not False:
+                raise SystemExit("MOEX trader fallback must keep include_ollama=False")
+            print("include_ollama=False")
+            raise SystemExit(0)
+raise SystemExit("include_ollama keyword not found")
+PY
+
+echo "[3/3] Timeout fallback continues to next model"
 AI_COST_GUARD_ENABLED=0 \
 GEMINI_BIN="$PROJECT_DIR/tests/fake_gemini_cli.py" \
 GEMINI_TIMEOUT_SECONDS=6 \
