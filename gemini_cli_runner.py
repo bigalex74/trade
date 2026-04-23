@@ -10,9 +10,13 @@ import ai_cost_guard
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-GEMINI_TRADER_HOME = os.getenv("GEMINI_TRADER_HOME", "/home/user/gemini-trader-home")
-GEMINI_WORKDIR = os.getenv("GEMINI_WORKDIR", "/home/user/gemini-trader-workdir")
-GEMINI_BIN = os.getenv("GEMINI_BIN", "/home/user/.nvm/versions/node/v24.14.0/bin/gemini")
+HOME_DIR = os.path.expanduser("~")
+
+GEMINI_TRADER_HOME = os.getenv("GEMINI_TRADER_HOME", os.path.join(HOME_DIR, "gemini-trader-home"))
+GEMINI_WORKDIR = os.getenv("GEMINI_WORKDIR", os.path.join(HOME_DIR, "gemini-trader-workdir"))
+# Пытаемся найти бинарник gemini в стандартных путях, если переменная не задана
+DEFAULT_GEMINI_BIN = os.path.join(HOME_DIR, ".nvm/versions/node/v24.14.0/bin/gemini")
+GEMINI_BIN = os.getenv("GEMINI_BIN", DEFAULT_GEMINI_BIN)
 GEMINI_TIMEOUT_SECONDS = int(os.getenv("GEMINI_TIMEOUT_SECONDS", "200"))
 GEMINI_CONCURRENCY = int(os.getenv("GEMINI_CONCURRENCY", "2"))
 GEMINI_LOCK_WAIT_SECONDS = int(os.getenv("GEMINI_LOCK_WAIT_SECONDS", "240"))

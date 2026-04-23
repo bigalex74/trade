@@ -26,7 +26,9 @@ DB_CONFIG = {
 TELEGRAM_CHAT_ID = "923741104"
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 MODEL_RANK_FILE = os.getenv("AI_MODEL_RANK_FILE", os.path.join(BASE_DIR, "ai_model_rank.json"))
-LOG_FILE = "/home/user/logs/ai_trader.log"
+# Логи теперь строятся динамически относительно расположения проекта
+LOG_DIR = os.getenv("AI_LOG_DIR", os.path.join(os.path.dirname(BASE_DIR), "logs"))
+LOG_FILE = os.path.join(LOG_DIR, "ai_trader.log")
 INITIAL_CAPITAL = 10000.0
 
 TRADERS_DATA = {

@@ -1,20 +1,21 @@
 #!/bin/bash
 set -u
 
-PROJECT_DIR="${PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
-PYTHON_BIN="${PYTHON_BIN:-/home/user/trading_venv/bin/python}"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+USER_HOME="${HOME:-/home/user}"
+PYTHON_BIN="${PYTHON_BIN:-${USER_HOME}/trading_venv/bin/python}"
 LOCK_FILE="/tmp/ai_job_dispatcher.lock"
 
-if [ -f "/home/user/.env.trading" ]; then
+if [ -f "${USER_HOME}/.env.trading" ]; then
   set -a
   # shellcheck disable=SC1091
-  source "/home/user/.env.trading"
+  source "${USER_HOME}/.env.trading"
   set +a
 fi
 
-export GEMINI_TRADER_HOME="${GEMINI_TRADER_HOME:-/home/user/gemini-trader-home}"
-export GEMINI_WORKDIR="${GEMINI_WORKDIR:-/home/user/gemini-trader-workdir}"
-export GEMINI_BIN="${GEMINI_BIN:-/home/user/.nvm/versions/node/v24.14.0/bin/gemini}"
+export GEMINI_TRADER_HOME="${GEMINI_TRADER_HOME:-${USER_HOME}/gemini-trader-home}"
+export GEMINI_WORKDIR="${GEMINI_WORKDIR:-${USER_HOME}/gemini-trader-workdir}"
+export GEMINI_BIN="${GEMINI_BIN:-${USER_HOME}/.nvm/versions/node/v24.14.0/bin/gemini}"
 export PATH="$(dirname "$GEMINI_BIN"):${PATH:-/usr/bin:/bin}"
 export GEMINI_TIMEOUT_SECONDS="${GEMINI_TIMEOUT_SECONDS:-200}"
 export GEMINI_CONCURRENCY="${GEMINI_CONCURRENCY:-1}"
