@@ -15,6 +15,9 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 import requests
 
+from market_regime import compact_regime, latest_market_regime
+from market_research_context import load_market_context
+
 
 DB_CONFIG = {
     "host": os.getenv("DB_HOST", "localhost"),
@@ -27,6 +30,7 @@ QDRANT_URL = os.getenv("AI_RAG_QDRANT_URL", "http://localhost:6333").rstrip("/")
 QDRANT_TIMEOUT = float(os.getenv("AI_RAG_QDRANT_TIMEOUT_SECONDS", "10"))
 TRADE_SETUPS_COLLECTION = os.getenv("AI_RAG_SETUPS_COLLECTION", "trade_setups_memory_v1")
 MARKET_NEWS_COLLECTION = os.getenv("AI_RAG_NEWS_COLLECTION", "market_news_memory_v1")
+MARKET_SNAPSHOTS_COLLECTION = os.getenv("AI_RAG_MARKET_COLLECTION", "market_snapshots_memory_v1")
 EMBEDDING_PROVIDER = os.getenv("AI_RAG_EMBEDDING_PROVIDER", "ollama").lower()
 OLLAMA_URL = os.getenv("AI_RAG_OLLAMA_URL", "http://localhost:11434/api/embeddings")
 EMBEDDING_MODEL = os.getenv("AI_RAG_EMBEDDING_MODEL", "nomic-embed-text")
@@ -34,6 +38,18 @@ HASH_VECTOR_SIZE = int(os.getenv("AI_RAG_HASH_VECTOR_SIZE", "768"))
 MAX_EMBED_TEXT_CHARS = int(os.getenv("AI_RAG_EMBED_TEXT_MAX_CHARS", "6000"))
 MAX_RAG_CONTEXT_CHARS = int(os.getenv("AI_RAG_MAX_CHARS", "700"))
 RAG_NAMESPACE = uuid.UUID("b82a89cf-5661-4a4f-9c61-c076e5e78e7b")
+MAX_NEWS_INFERRED_SECIDS = int(os.getenv("AI_RAG_NEWS_MAX_INFERRED_SECIDS", "4"))
+
+GENERIC_NEWS_TERMS = {
+    "акции",
+    "биржа",
+    "банк",
+    "компания",
+    "рынок",
+    "россия",
+    "московская биржа",
+    "moscow exchange",
+}
 
 
 def _json_default(value: Any):
@@ -108,6 +124,87 @@ def _compact_snapshot(snapshot: Any, limit: int = 1800) -> str:
     if not preferred:
         preferred = dict(list(snapshot.items())[:30])
     return _truncate(json.dumps(preferred, ensure_ascii=False, separators=(",", ":"), default=_json_default), limit)
+
+
+def _normalize_match_text(value: str | None) -> str:
+    return re.sub(r"\s+", " ", str(value or "").lower().replace("ё", "е")).strip()
+
+
+def _split_news_keywords(value: str | None) -> list[str]:
+    terms: list[str] = []
+    for raw in re.split(r"[,;|]", value or ""):
+        term = _normalize_match_text(raw)
+        if len(term) >= 3 and term not in GENERIC_NEWS_TERMS:
+            terms.append(term)
+    return terms
+
+
+def _term_matches_text(term: str, text: str) -> bool:
+    if not term or not text:
+        return False
+    if re.fullmatch(r"[a-z0-9_]{2,12}", term):
+        return re.search(rf"(?<![a-z0-9_]){re.escape(term)}(?![a-z0-9_])", text) is not None
+    return term in text
+
+
+def load_instrument_match_terms(conn) -> list[dict[str, Any]]:
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute(
+            """
+            SELECT secid, issuer_name, news_keywords
+            FROM ref.instrument
+            WHERE active = TRUE
+              AND secid IS NOT NULL
+            """
+        )
+        rows = []
+        for row in cur.fetchall():
+            secid = str(row["secid"]).strip()
+            terms = {_normalize_match_text(secid)}
+            issuer = _normalize_match_text(row.get("issuer_name"))
+            if len(issuer) >= 4 and issuer not in GENERIC_NEWS_TERMS:
+                terms.add(issuer)
+            terms.update(_split_news_keywords(row.get("news_keywords")))
+            rows.append({"secid": secid, "terms": sorted(terms, key=len, reverse=True)})
+        return rows
+
+
+def infer_news_secids(
+    row: dict[str, Any],
+    instrument_terms: list[dict[str, Any]] | None = None,
+) -> tuple[list[str], list[str], list[str]]:
+    existing = [str(item).strip() for item in (row.get("secids") or []) if str(item or "").strip()]
+    if existing:
+        return sorted(set(existing)), ["db"], []
+
+    if not instrument_terms:
+        return [], [], []
+
+    text = _normalize_match_text(
+        " ".join(
+            str(row.get(field) or "")
+            for field in ("title", "summary", "content", "external_id")
+        )
+    )
+    matches: list[tuple[int, str, str]] = []
+    for instrument in instrument_terms:
+        secid = instrument["secid"]
+        for term in instrument["terms"]:
+            if _term_matches_text(term, text):
+                matches.append((len(term), secid, term))
+                break
+
+    matches.sort(reverse=True)
+    secids: list[str] = []
+    terms: list[str] = []
+    for _, secid, term in matches:
+        if secid in secids:
+            continue
+        secids.append(secid)
+        terms.append(term)
+        if len(secids) >= MAX_NEWS_INFERRED_SECIDS:
+            break
+    return secids, (["keywords"] if secids else []), terms
 
 
 class EmbeddingClient:
@@ -423,15 +520,19 @@ def load_news_rows(conn, *, lookback_hours: int, limit: int) -> list[dict[str, A
         return [dict(row) for row in cur.fetchall()]
 
 
-def news_document(row: dict[str, Any]) -> tuple[str, dict[str, Any], str]:
+def news_document(
+    row: dict[str, Any],
+    instrument_terms: list[dict[str, Any]] | None = None,
+) -> tuple[str, dict[str, Any], str]:
     source_key = f"market_news:{row.get('news_id')}"
     published_at = row.get("published_at")
     published_ts = int(published_at.timestamp()) if published_at else None
     body = row.get("summary") or row.get("content") or ""
-    secids = [item for item in (row.get("secids") or []) if item]
+    secids, match_sources, matched_terms = infer_news_secids(row, instrument_terms)
     text = (
         f"Market news source={row.get('source')} published_at={published_at} "
-        f"secids={','.join(secids)} title={_truncate(row.get('title'), 300)}. "
+        f"secids={','.join(secids)} match={','.join(match_sources)} "
+        f"title={_truncate(row.get('title'), 300)}. "
         f"Summary: {_truncate(body, 1200)}"
     )
     payload = {
@@ -446,10 +547,138 @@ def news_document(row: dict[str, Any]) -> tuple[str, dict[str, Any], str]:
         "summary": _truncate(body, 900),
         "link": row.get("link"),
         "secids": secids,
+        "match_sources": match_sources,
+        "matched_terms": matched_terms[:MAX_NEWS_INFERRED_SECIDS],
         "embedding_model": EMBEDDING_MODEL,
     }
     payload["source_hash"] = source_hash(text, payload)
     return source_key, payload, text
+
+
+def _window_value(item: dict[str, Any], window_name: str, field: str):
+    window = ((item or {}).get("windows") or {}).get(window_name) or {}
+    return window.get(field)
+
+
+def _top_by_metric(context: dict[str, Any], metric: str, limit: int, reverse: bool = True) -> list[dict[str, Any]]:
+    rows = []
+    for secid, item in context.items():
+        value = _number(item.get(metric))
+        if value is None:
+            continue
+        rows.append(
+            {
+                "secid": secid,
+                "value": round(value, 3),
+                "price": _round(item.get("price"), 4),
+                "issuer": item.get("issuer_name"),
+            }
+        )
+    rows.sort(key=lambda row: row["value"], reverse=reverse)
+    return rows[:limit]
+
+
+def _liquidity_rows(context: dict[str, Any], limit: int) -> list[dict[str, Any]]:
+    rows = []
+    for secid, item in context.items():
+        day_value = _number(_window_value(item, "current_day", "value"))
+        if day_value is None:
+            continue
+        rows.append(
+            {
+                "secid": secid,
+                "value_mrub": round(day_value / 1_000_000, 2),
+                "day": _round(item.get("day_change"), 3),
+                "price": _round(item.get("price"), 4),
+            }
+        )
+    rows.sort(key=lambda row: row["value_mrub"], reverse=True)
+    return rows[:limit]
+
+
+def _market_snapshot_documents(conn, *, symbol_limit: int = 20) -> list[tuple[str, dict[str, Any], str]]:
+    context = load_market_context(conn)
+    if not context:
+        return []
+
+    latest_update = max(
+        (item.get("updated_at") for item in context.values() if item.get("updated_at")),
+        default=None,
+    )
+    regime = latest_market_regime(conn, max_age_minutes=int(os.getenv("AI_RAG_REGIME_MAX_AGE_MINUTES", "180")))
+    regime_payload = compact_regime(regime)
+    gainers = _top_by_metric(context, "day_change", 6, reverse=True)
+    losers = _top_by_metric(context, "day_change", 6, reverse=False)
+    hour_movers = _top_by_metric(context, "hour_change", 6, reverse=True)
+    liquid = _liquidity_rows(context, 8)
+    source_key = "market_snapshot:latest"
+    text = (
+        f"MOEX market snapshot latest_update={latest_update} "
+        f"regime={json.dumps(regime_payload, ensure_ascii=False, separators=(',', ':'), default=_json_default)}. "
+        f"Top gainers={json.dumps(gainers, ensure_ascii=False, separators=(',', ':'), default=_json_default)}. "
+        f"Top losers={json.dumps(losers, ensure_ascii=False, separators=(',', ':'), default=_json_default)}. "
+        f"Hour movers={json.dumps(hour_movers, ensure_ascii=False, separators=(',', ':'), default=_json_default)}. "
+        f"Liquidity leaders={json.dumps(liquid, ensure_ascii=False, separators=(',', ':'), default=_json_default)}."
+    )
+    payload = {
+        "kind": "market_snapshot",
+        "source_key": source_key,
+        "scope": "market",
+        "latest_update": latest_update,
+        "regime": regime_payload,
+        "top_gainers": gainers,
+        "top_losers": losers,
+        "hour_movers": hour_movers,
+        "liquidity_leaders": liquid,
+        "embedding_model": EMBEDDING_MODEL,
+    }
+    payload["source_hash"] = source_hash(text, payload)
+    documents = [(source_key, payload, text)]
+
+    focus = {
+        item.strip().upper()
+        for item in os.getenv(
+            "AI_RAG_SNAPSHOT_FOCUS",
+            "SBER,GAZP,LKOH,ROSN,MOEX,YNDX,AFLT,GMKN,NVTK,TATN,CHMF,ALRS",
+        ).split(",")
+        if item.strip()
+    }
+    ranked_symbols = []
+    for secid, item in context.items():
+        day = abs(_number(item.get("day_change")) or 0.0)
+        hour = abs(_number(item.get("hour_change")) or 0.0)
+        value = _number(_window_value(item, "current_day", "value")) or 0.0
+        focus_bonus = 10_000_000_000 if secid.upper() in focus else 0
+        ranked_symbols.append((focus_bonus + value + (day + hour) * 1_000_000, secid, item))
+    ranked_symbols.sort(reverse=True)
+
+    for _, secid, item in ranked_symbols[:symbol_limit]:
+        symbol_source_key = f"market_snapshot_symbol:{secid}"
+        symbol_payload = {
+            "kind": "market_snapshot",
+            "source_key": symbol_source_key,
+            "scope": "symbol",
+            "secid": secid,
+            "issuer": item.get("issuer_name"),
+            "price": _round(item.get("price"), 4),
+            "day_change": _round(item.get("day_change"), 3),
+            "hour_change": _round(item.get("hour_change"), 3),
+            "five_min_change": _round(item.get("five_min_change"), 3),
+            "day_value_mrub": _round((_number(_window_value(item, "current_day", "value")) or 0) / 1_000_000, 2),
+            "hour_value_mrub": _round((_number(_window_value(item, "current_hour", "value")) or 0) / 1_000_000, 2),
+            "latest_update": item.get("updated_at"),
+            "embedding_model": EMBEDDING_MODEL,
+        }
+        symbol_text = (
+            f"MOEX symbol snapshot {secid} {item.get('issuer_name') or ''}: "
+            f"price={symbol_payload['price']} day={symbol_payload['day_change']}% "
+            f"hour={symbol_payload['hour_change']}% five_min={symbol_payload['five_min_change']}% "
+            f"day_value_mrub={symbol_payload['day_value_mrub']} hour_value_mrub={symbol_payload['hour_value_mrub']} "
+            f"updated={item.get('updated_at')}."
+        )
+        symbol_payload["source_hash"] = source_hash(symbol_text, symbol_payload)
+        documents.append((symbol_source_key, symbol_payload, symbol_text))
+    return documents
 
 
 def _upsert_documents(
@@ -522,9 +751,21 @@ def index_hybrid_memory(
         if mode in {"all", "news"}:
             qdrant.ensure_collection(MARKET_NEWS_COLLECTION, vector_size)
             rows = load_news_rows(conn, lookback_hours=news_lookback_hours, limit=limit)
-            documents = [news_document(row) for row in rows]
+            instrument_terms = load_instrument_match_terms(conn)
+            documents = [news_document(row, instrument_terms) for row in rows]
             stats["news"] = _upsert_documents(
                 qdrant, embedder, MARKET_NEWS_COLLECTION, documents, force=force, dry_run=dry_run
+            )
+            stats["news"]["matched"] = sum(1 for _, payload, _ in documents if payload.get("secids"))
+            stats["news"]["keyword_matched"] = sum(
+                1 for _, payload, _ in documents if "keywords" in (payload.get("match_sources") or [])
+            )
+        if mode in {"all", "market"}:
+            qdrant.ensure_collection(MARKET_SNAPSHOTS_COLLECTION, vector_size)
+            symbol_limit = int(os.getenv("AI_RAG_SNAPSHOT_SYMBOL_LIMIT", "20"))
+            documents = _market_snapshot_documents(conn, symbol_limit=symbol_limit)
+            stats["market"] = _upsert_documents(
+                qdrant, embedder, MARKET_SNAPSHOTS_COLLECTION, documents, force=force, dry_run=dry_run
             )
     finally:
         conn.close()
@@ -566,8 +807,8 @@ def _format_setup_hit(hit: dict[str, Any]) -> str:
     payload = hit.get("payload") or {}
     pnl = payload.get("pnl_pct")
     sign = "+" if payload.get("outcome") == "win" else "-"
-    reason = _truncate(payload.get("open_reason"), 90)
-    close_reason = _truncate(payload.get("close_reason"), 70)
+    reason = _truncate(payload.get("open_reason"), 48)
+    close_reason = _truncate(payload.get("close_reason"), 32)
     return (
         f"- {payload.get('secid')} {payload.get('open_action')}->{payload.get('close_action')} "
         f"{sign}{abs(float(pnl or 0)):.2f}% {payload.get('trader')}: "
@@ -577,11 +818,28 @@ def _format_setup_hit(hit: dict[str, Any]) -> str:
 
 def _format_news_hit(hit: dict[str, Any]) -> str:
     payload = hit.get("payload") or {}
-    secids = ",".join(payload.get("secids") or [])
-    title = _truncate(payload.get("title"), 90)
-    summary = _truncate(payload.get("summary"), 90)
-    published = str(payload.get("published_at") or "")[:16].replace("T", " ") or "no_date"
-    return f"- {published} {secids}: {title}. {summary}"
+    secids = ",".join(payload.get("secids") or []) or "market"
+    title = _truncate(payload.get("title"), 72)
+    published = str(payload.get("published_at") or "")[:10] or "no_date"
+    return f"- {published} {secids}: {title}"
+
+
+def _format_market_hit(hit: dict[str, Any]) -> str:
+    payload = hit.get("payload") or {}
+    if payload.get("scope") == "symbol":
+        return (
+            f"- {payload.get('secid')}: p={payload.get('price')} "
+            f"d={payload.get('day_change')}% h={payload.get('hour_change')}% "
+            f"liq={payload.get('day_value_mrub')}mrub"
+        )
+    regime = payload.get("regime") or {}
+    gainers = ",".join(item.get("secid", "") for item in (payload.get("top_gainers") or [])[:3])
+    losers = ",".join(item.get("secid", "") for item in (payload.get("top_losers") or [])[:3])
+    liquid = ",".join(item.get("secid", "") for item in (payload.get("liquidity_leaders") or [])[:3])
+    return (
+        f"- market regime={regime.get('regime')} risk={regime.get('risk')} "
+        f"breadth={regime.get('breadth')} up={gainers} down={losers} liq={liquid}"
+    )
 
 
 def _rank_setup_hits(hits: list[dict[str, Any]], secids: set[str], limit: int) -> list[dict[str, Any]]:
@@ -605,6 +863,16 @@ def _filter_news_hits(hits: list[dict[str, Any]], secids: set[str], limit: int) 
     return (selected + general)[:limit]
 
 
+def _rank_market_hits(hits: list[dict[str, Any]], secids: set[str], limit: int) -> list[dict[str, Any]]:
+    def key(hit):
+        payload = hit.get("payload") or {}
+        same_symbol = 1 if payload.get("secid") in secids else 0
+        market_scope = 1 if payload.get("scope") == "market" else 0
+        return (market_scope, same_symbol, float(hit.get("score") or 0))
+
+    return sorted(hits, key=key, reverse=True)[:limit]
+
+
 def build_trader_rag_context(
     *,
     trader_name: str,
@@ -620,6 +888,7 @@ def build_trader_rag_context(
     try:
         setup_limit = int(os.getenv("AI_RAG_SETUPS_LIMIT", "3"))
         news_limit = int(os.getenv("AI_RAG_NEWS_LIMIT", "3"))
+        market_limit = int(os.getenv("AI_RAG_MARKET_LIMIT", "1"))
         score_threshold = os.getenv("AI_RAG_SCORE_THRESHOLD")
         min_score = float(score_threshold) if score_threshold else None
         news_max_age_hours = int(os.getenv("AI_RAG_NEWS_MAX_AGE_HOURS", "168"))
@@ -647,14 +916,36 @@ def build_trader_rag_context(
             score_threshold=min_score,
         )
         news_hits = _filter_news_hits(news_hits, secids, news_limit)
+        market_hits: list[dict[str, Any]] = []
+        if market_limit > 0:
+            market_hits = qdrant.search(
+                MARKET_SNAPSHOTS_COLLECTION,
+                query_vector,
+                limit=max(market_limit * 10, 10),
+                query_filter=_kind_filter("market_snapshot"),
+                score_threshold=min_score,
+            )
+            aggregate_payload = qdrant.retrieve_payloads(
+                MARKET_SNAPSHOTS_COLLECTION,
+                [stable_point_id("market_snapshot:latest")],
+            ).get(stable_point_id("market_snapshot:latest"))
+            if aggregate_payload and not any(
+                (hit.get("payload") or {}).get("source_key") == "market_snapshot:latest"
+                for hit in market_hits
+            ):
+                market_hits.append({"payload": aggregate_payload, "score": 1.0})
+            market_hits = _rank_market_hits(market_hits, secids, market_limit)
 
         parts = []
-        if setup_hits:
-            parts.append("RAG_TRADES history, not command:")
-            parts.extend(_format_setup_hit(hit) for hit in setup_hits)
+        if market_hits:
+            parts.append("RAG_MARKET compact snapshot:")
+            parts.extend(_format_market_hit(hit) for hit in market_hits)
         if news_hits:
             parts.append("RAG_NEWS fresh risk context:")
             parts.extend(_format_news_hit(hit) for hit in news_hits)
+        if setup_hits:
+            parts.append("RAG_TRADES history, not command:")
+            parts.extend(_format_setup_hit(hit) for hit in setup_hits)
         if not parts:
             return ""
         parts.append("Rule: use only as extra risk context with MKT.")
@@ -662,7 +953,7 @@ def build_trader_rag_context(
         if log_func:
             log_func(
                 f"[{trader_name}] Hybrid RAG: setups={len(setup_hits)} "
-                f"news={len(news_hits)} chars={len(context)}"
+                f"news={len(news_hits)} market={len(market_hits)} chars={len(context)}"
             )
         return context
     except Exception as exc:

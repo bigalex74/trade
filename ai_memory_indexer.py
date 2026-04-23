@@ -8,8 +8,8 @@ from hybrid_rag import index_hybrid_memory
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Индексирует торговую память и новости в Qdrant.")
-    parser.add_argument("--mode", choices=["all", "setups", "news"], default="all")
+    parser = argparse.ArgumentParser(description="Индексирует торговую память, новости и market snapshots в Qdrant.")
+    parser.add_argument("--mode", choices=["all", "setups", "news", "market"], default="all")
     parser.add_argument("--lookback-days", type=int, default=30)
     parser.add_argument("--news-lookback-hours", type=int, default=168)
     parser.add_argument("--limit", type=int, default=500)
