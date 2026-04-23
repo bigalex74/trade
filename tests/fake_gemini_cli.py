@@ -50,7 +50,7 @@ if "Historical MOEX backtest" in prompt:
             }
         ]
     }
-elif "Respond ONLY raw JSON" in prompt:
+elif "Respond ONLY raw JSON" in prompt or "Return ONLY JSON" in prompt:
     action = os.getenv("FAKE_GEMINI_ACTION", "buy")
     secid = os.getenv("FAKE_GEMINI_SECID", "SBER")
     quantity = os.getenv("FAKE_GEMINI_QUANTITY")

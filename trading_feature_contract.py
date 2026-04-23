@@ -389,3 +389,108 @@ def payload_stats(payload: dict[str, Any]) -> dict[str, Any]:
         "chars": len(text),
         "avg_chars_per_symbol": round(len(text) / max(1, len(payload)), 1),
     }
+
+
+PROMPT_KEY_MAP = {
+    "p": "p",
+    "ch5": "m5",
+    "ch1h": "h1",
+    "ch1d": "d1",
+    "age_s": "age_m",
+    "trend": "t",
+    "vol5r": "v5",
+    "vol1hr": "vh",
+    "vwap_dist": "vw",
+    "spread5": "sp5",
+    "close_loc5": "cl5",
+    "body5": "b5",
+    "rsi": "rsi",
+    "macdh": "mh",
+    "adx": "adx",
+    "chop": "chop",
+    "jaw": "jaw",
+    "teeth": "teeth",
+    "lips": "lips",
+    "fr_up": "fu",
+    "fr_dn": "fd",
+    "bbp": "bbp",
+    "range5": "rg5",
+    "range1d": "rg1",
+    "body1d": "b1",
+    "day_hi": "hi",
+    "day_lo": "lo",
+    "prev_hi": "phi",
+    "prev_lo": "plo",
+    "prev_close": "pc",
+    "atr_pct": "atr",
+    "liq": "liq",
+    "day_value_m": "val",
+    "week_ch": "w",
+    "month_ch": "mo",
+    "year_ch": "y",
+    "sent_score": "sent",
+    "sent_age_h": "sent_age",
+}
+
+TREND_MAP = {
+    "trend_up": "up",
+    "trend_down": "down",
+    "range": "range",
+    "panic": "panic",
+    "mixed": "mix",
+}
+
+LIQ_MAP = {
+    "high": "H",
+    "medium": "M",
+    "low": "L",
+    "unknown": "U",
+}
+
+
+def _prompt_round(key: str, value: Any):
+    number = _number(value)
+    if number is None:
+        return value
+    if key in {"p", "jaw", "teeth", "lips", "hi", "lo", "phi", "plo", "pc"}:
+        return round(number, 2)
+    if key in {"val", "age_m"}:
+        return round(number, 1)
+    if abs(number) >= 100:
+        return round(number, 1)
+    return round(number, 2)
+
+
+def compact_prompt_market_payload(payload: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    compact: dict[str, dict[str, Any]] = {}
+    for secid, features in (payload or {}).items():
+        item: dict[str, Any] = {}
+        for source_key, value in (features or {}).items():
+            if value is None:
+                continue
+            if source_key in {"issuer", "sent"}:
+                continue
+            target_key = PROMPT_KEY_MAP.get(source_key)
+            if not target_key:
+                continue
+            if source_key == "trend":
+                value = TREND_MAP.get(str(value), str(value)[:8])
+            elif source_key == "liq":
+                value = LIQ_MAP.get(str(value), str(value)[:1].upper())
+            elif source_key == "age_s":
+                value = _number(value)
+                if value is None:
+                    continue
+                value = value / 60
+            elif isinstance(value, bool):
+                if not value:
+                    continue
+                value = 1
+            value = _prompt_round(target_key, value)
+            item[target_key] = value
+        sent_text = str((features or {}).get("sent") or "").strip()
+        sent_score = _number((features or {}).get("sent_score"))
+        if sent_text and sent_score is not None and abs(sent_score) >= 0.35:
+            item["stxt"] = sent_text[:70]
+        compact[secid] = item
+    return compact

@@ -167,9 +167,9 @@ AI_RAG_EMBEDDING_PROVIDER=ollama
 AI_RAG_EMBEDDING_MODEL=nomic-embed-text
 AI_RAG_SETUPS_COLLECTION=trade_setups_memory_v1
 AI_RAG_NEWS_COLLECTION=market_news_memory_v1
-AI_RAG_SETUPS_LIMIT=3
-AI_RAG_NEWS_LIMIT=3
-AI_RAG_MAX_CHARS=700
+AI_RAG_SETUPS_LIMIT=2
+AI_RAG_NEWS_LIMIT=2
+AI_RAG_MAX_CHARS=420
 AI_RAG_NEWS_MAX_AGE_HOURS=168
 ```
 
@@ -183,7 +183,8 @@ AI_RAG_NEWS_MAX_AGE_HOURS=168
 - Индексатор теперь чистит устаревшие точки Qdrant, которые вышли из текущего окна lookback.
 - Индексатор запускается по cron с `flock`, поэтому параллельные refresh-процессы не накладываются друг на друга.
 - Размер RAG-блока ограничен, чтобы не вернуть проблему переполненных prompt.
-- Для штатного запуска `run_ai_trader_once.sh` по умолчанию ограничивает выборку рынка `AI_TRADER_MAX_SYMBOLS=8`, чтобы оставить место под RAG-контекст без превышения AI prompt budget.
+- Для штатного запуска `run_ai_trader_once.sh` по умолчанию ограничивает выборку рынка `AI_TRADER_MAX_SYMBOLS=6`, чтобы оставить место под RAG-контекст без перегруза модели.
+- После `TRADE-006` трейдеры передают модели компактный `MKT`, а risk engine продолжает получать полный `market_features`.
 - Если итоговый prompt все равно превышает лимит, `ai_paper_trader.py` автоматически ужимает или отключает RAG-блок.
 - Новости имеют TTL.
 - При ошибке RAG не блокирует работу трейдера.

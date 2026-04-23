@@ -10,16 +10,29 @@ from ai_job_store import connect
 
 
 MARKERS = [
+    "ROLE=",
     "KB:",
     "DNA:",
     "Cash:",
     "Portfolio:",
     "History:",
     "REGIME:",
+    "REGIME=",
+    "POS=",
+    "HIST=",
+    "MACRO=",
+    "MKT=",
+    "RULE=",
+    "RAG=",
+    "LEAGUE=",
+    "RATINGS=",
+    "KEYS:",
+    "ACTIONS:",
     "META_CONSENSUS:",
     "MARKET_FEATURES:",
     "MANDATE:",
     "Respond ONLY raw JSON:",
+    "Return ONLY JSON:",
 ]
 
 GENERIC_KB_MARKERS = (
@@ -68,7 +81,7 @@ def is_generic_kb(kb: str) -> bool:
 
 
 def parse_market_features(prompt: str):
-    value = section(prompt, "MARKET_FEATURES:")
+    value = section(prompt, "MKT=") or section(prompt, "MARKET_FEATURES:")
     if not value:
         return None, "missing"
     try:
@@ -126,9 +139,9 @@ def build_report(rows):
         if isinstance(features, dict):
             market_symbol_counts.append(len(features))
             for item in features.values():
-                if isinstance(item, dict) and "age_s" in item:
+                if isinstance(item, dict) and ("age_s" in item or "age_m" in item):
                     try:
-                        market_age_values.append(float(item["age_s"]))
+                        market_age_values.append(float(item.get("age_s", item.get("age_m"))))
                     except Exception:
                         pass
 
@@ -166,8 +179,8 @@ def build_report(rows):
             "symbol_count_avg": round(mean(market_symbol_counts), 1) if market_symbol_counts else 0,
             "symbol_count_min": min(market_symbol_counts) if market_symbol_counts else 0,
             "symbol_count_max": max(market_symbol_counts) if market_symbol_counts else 0,
-            "age_s_avg": round(mean(market_age_values), 1) if market_age_values else None,
-            "age_s_max": max(market_age_values) if market_age_values else None,
+            "age_avg": round(mean(market_age_values), 1) if market_age_values else None,
+            "age_max": max(market_age_values) if market_age_values else None,
             "parse_errors": dict(market_parse_errors),
         },
         "warnings": {

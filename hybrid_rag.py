@@ -565,23 +565,23 @@ def _candidate_query_text(
 def _format_setup_hit(hit: dict[str, Any]) -> str:
     payload = hit.get("payload") or {}
     pnl = payload.get("pnl_pct")
-    outcome = "плюс" if payload.get("outcome") == "win" else "минус"
-    reason = _truncate(payload.get("open_reason"), 190)
-    close_reason = _truncate(payload.get("close_reason"), 120)
+    sign = "+" if payload.get("outcome") == "win" else "-"
+    reason = _truncate(payload.get("open_reason"), 90)
+    close_reason = _truncate(payload.get("close_reason"), 70)
     return (
         f"- {payload.get('secid')} {payload.get('open_action')}->{payload.get('close_action')} "
-        f"{outcome} {pnl:+.2f}% | трейдер {payload.get('trader')} | "
-        f"вход: {reason} | выход: {close_reason}"
+        f"{sign}{abs(float(pnl or 0)):.2f}% {payload.get('trader')}: "
+        f"in={reason}; out={close_reason}"
     )
 
 
 def _format_news_hit(hit: dict[str, Any]) -> str:
     payload = hit.get("payload") or {}
     secids = ",".join(payload.get("secids") or [])
-    title = _truncate(payload.get("title"), 160)
-    summary = _truncate(payload.get("summary"), 180)
-    published = payload.get("published_at") or "без даты"
-    return f"- {published} {payload.get('source')} {secids}: {title}. {summary}"
+    title = _truncate(payload.get("title"), 90)
+    summary = _truncate(payload.get("summary"), 90)
+    published = str(payload.get("published_at") or "")[:16].replace("T", " ") or "no_date"
+    return f"- {published} {secids}: {title}. {summary}"
 
 
 def _rank_setup_hits(hits: list[dict[str, Any]], secids: set[str], limit: int) -> list[dict[str, Any]]:
@@ -650,14 +650,14 @@ def build_trader_rag_context(
 
         parts = []
         if setup_hits:
-            parts.append("ПАМЯТЬ ПОХОЖИХ СДЕЛОК (исторические исходы, не приказ к действию):")
+            parts.append("RAG_TRADES history, not command:")
             parts.extend(_format_setup_hit(hit) for hit in setup_hits)
         if news_hits:
-            parts.append("НОВОСТНОЙ КОНТЕКСТ QDRANT (проверь свежесть и не переоценивай одиночную новость):")
+            parts.append("RAG_NEWS fresh risk context:")
             parts.extend(_format_news_hit(hit) for hit in news_hits)
         if not parts:
             return ""
-        parts.append("Правило: используй этот блок только как дополнительный риск-контекст вместе с MARKET FEATURES.")
+        parts.append("Rule: use only as extra risk context with MKT.")
         context = _truncate("\n".join(parts), MAX_RAG_CONTEXT_CHARS)
         if log_func:
             log_func(

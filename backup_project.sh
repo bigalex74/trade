@@ -15,6 +15,7 @@ INCLUDE_PATHS=(
   "gemini_cli_runner.py"
   "hybrid_rag.py"
   "ai_memory_indexer.py"
+  "ai_prompt_log_analyzer.py"
   "market_research_context.py"
   "market_research_maintenance.py"
   "market_research_market_pipeline.py"

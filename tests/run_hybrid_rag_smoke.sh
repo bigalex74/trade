@@ -133,9 +133,9 @@ ctx = build_trader_rag_context(
     market_regime="BULL MARKET",
 )
 print(ctx)
-if "ПАМЯТЬ ПОХОЖИХ СДЕЛОК" not in ctx:
+if "RAG_TRADES" not in ctx:
     raise SystemExit("missing trade setup memory")
-if "НОВОСТНОЙ КОНТЕКСТ QDRANT" not in ctx:
+if "RAG_NEWS" not in ctx:
     raise SystemExit("missing news memory")
 if "SBER" not in ctx:
     raise SystemExit("missing SBER context")
