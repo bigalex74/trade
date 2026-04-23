@@ -2,13 +2,18 @@ import psycopg2
 import json
 import os
 import requests
+import threading
 from datetime import datetime, timedelta
+from contextlib import closing
 from algo_kb_client import upload_file_to_algo_kb
 from gemini_cli_runner import call_ai_markdown_with_fallback
 from ai_context_cache import is_low_quality_context
 from strategy_candidate_pipeline import create_candidate
 
 # CONFIG
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+USER_HOME = os.path.expanduser("~")
+
 DB_CONFIG = {
     "host": os.getenv("DB_HOST", "localhost"),
     "database": "market_research",
@@ -33,15 +38,17 @@ TRADERS_DNA = {
 def get_db_connection(): return psycopg2.connect(**DB_CONFIG)
 
 def send_telegram_status(message):
-    """Отправляет краткий статус в Telegram."""
+    """Отправляет краткий статус в Telegram асинхронно."""
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     if not token: return
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
-    payload = {"chat_id": "923741104", "text": message, "parse_mode": "HTML"}
-    try:
-        proxies = {"http": "http://127.0.0.1:10808", "https": "http://127.0.0.1:10808"}
-        requests.post(url, json=payload, proxies=proxies, timeout=10)
-    except: pass
+    def _send():
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        payload = {"chat_id": "923741104", "text": message, "parse_mode": "HTML"}
+        try:
+            proxies = {"http": "http://127.0.0.1:10808", "https": "http://127.0.0.1:10808"}
+            requests.post(url, json=payload, proxies=proxies, timeout=10)
+        except Exception: pass
+    threading.Thread(target=_send, daemon=True).start()
 
 def compact_indicators(indicators):
     keep_prefixes = (
@@ -67,45 +74,50 @@ def compact_indicators(indicators):
     return compact
 
 def get_market_data_for_day():
-    conn = get_db_connection(); cur = conn.cursor()
-    cur.execute("""
-        SELECT secid, window_key, open, high, low, close, volume, indicators, updated_at
-        FROM analytics.trader_market_windows
-        WHERE updated_at > now() - interval '24 hours'
-        ORDER BY secid, updated_at ASC
-    """)
     data = {}
-    for r in cur.fetchall():
-        secid = r[0]
-        win = r[1]
-        key = f"{secid}:{win}"
-        item = data.setdefault(key, {
-            "secid": secid,
-            "window": win,
-            "bars": 0,
-            "first_close": None,
-            "last_close": None,
-            "high": None,
-            "low": None,
-            "volume": 0.0,
-            "last_indicators": {},
-            "first_time": None,
-            "last_time": None,
-        })
-        high = float(r[3]) if r[3] is not None else None
-        low = float(r[4]) if r[4] is not None else None
-        close = float(r[5]) if r[5] is not None else None
-        volume = float(r[6] or 0)
-        item["bars"] += 1
-        item["first_close"] = close if item["first_close"] is None else item["first_close"]
-        item["last_close"] = close
-        item["high"] = high if item["high"] is None else max(item["high"], high or item["high"])
-        item["low"] = low if item["low"] is None else min(item["low"], low or item["low"])
-        item["volume"] += volume
-        item["last_indicators"] = compact_indicators(r[7] or {})
-        item["first_time"] = r[8].isoformat() if item["first_time"] is None else item["first_time"]
-        item["last_time"] = r[8].isoformat()
-    cur.close(); conn.close()
+    try:
+        with closing(get_db_connection()) as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT secid, window_key, open, high, low, close, volume, indicators, updated_at
+                    FROM analytics.trader_market_windows
+                    WHERE updated_at > now() - interval '24 hours'
+                    ORDER BY secid, updated_at ASC
+                """)
+                for r in cur.fetchall():
+                    secid = r[0]
+                    win = r[1]
+                    key = f"{secid}:{win}"
+                    item = data.setdefault(key, {
+                        "secid": secid,
+                        "window": win,
+                        "bars": 0,
+                        "first_close": None,
+                        "last_close": None,
+                        "high": None,
+                        "low": None,
+                        "volume": 0.0,
+                        "last_indicators": {},
+                        "first_time": None,
+                        "last_time": None,
+                    })
+                    high = float(r[3]) if r[3] is not None else None
+                    low = float(r[4]) if r[4] is not None else None
+                    close = float(r[5]) if r[5] is not None else None
+                    volume = float(r[6] or 0)
+                    item["bars"] += 1
+                    item["first_close"] = close if item["first_close"] is None else item["first_close"]
+                    item["last_close"] = close
+                    item["high"] = high if item["high"] is None else max(item["high"], high or item["high"])
+                    item["low"] = low if item["low"] is None else min(item["low"], low or item["low"])
+                    item["volume"] += volume
+                    item["last_indicators"] = compact_indicators(r[7] or {})
+                    item["first_time"] = r[8].isoformat() if item["first_time"] is None else item["first_time"]
+                    item["last_time"] = r[8].isoformat()
+    except Exception as e:
+        print(f"Failed to fetch market data for evolution: {e}")
+        return []
+    
     summaries = list(data.values())
     for item in summaries:
         first = item.get("first_close") or 0
@@ -114,17 +126,22 @@ def get_market_data_for_day():
     return summaries[: int(os.getenv("AI_EVOLUTION_MAX_MARKET_GROUPS", "80"))]
 
 def get_trader_performance():
-    conn = get_db_connection(); cur = conn.cursor()
-    cur.execute("""
-        SELECT trader_name, secid, action, price, reason, model_id, created_at
-        FROM trading.journal
-        WHERE created_at > now() - interval '24 hours'
-        ORDER BY created_at ASC
-    """)
     trades = []
-    for r in cur.fetchall():
-        trades.append({"trader": r[0], "secid": r[1], "act": r[2], "pr": float(r[3]), "rs": r[4], "model": r[5], "time": r[6].isoformat()})
-    cur.close(); conn.close()
+    try:
+        with closing(get_db_connection()) as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT trader_name, secid, action, price, reason, model_id, created_at
+                    FROM trading.journal
+                    WHERE created_at > now() - interval '24 hours'
+                    ORDER BY created_at ASC
+                """)
+                for r in cur.fetchall():
+                    trades.append({"trader": r[0], "secid": r[1], "act": r[2], "pr": float(r[3]), "rs": r[4], "model": r[5], "time": r[6].isoformat()})
+    except Exception as e:
+        print(f"Failed to fetch trader journal for evolution: {e}")
+        return {}
+
     summary = {}
     for trade in trades:
         item = summary.setdefault(trade["trader"], {"trade_count": 0, "actions": {}, "secids": {}, "latest": []})
@@ -146,8 +163,8 @@ def deep_analyze_and_evolve():
     print("--- STARTING GRANULAR EVOLUTION DEEP DIVE ---")
     test_mode = os.getenv("AI_TEST_MODE", "0") == "1"
     if test_mode:
-        market_data = {"SBER": [{"time": datetime.now().isoformat(), "win": "test", "ohlc": [1, 2, 1, 2], "inds": {}}]}
-        trader_data = [{"trader": "TestTrader", "secid": "SBER", "act": "BUY", "pr": 1.0, "rs": "smoke test", "model": "test", "time": datetime.now().isoformat()}]
+        market_data = [{"secid": "SBER", "bars": 1, "last_close": 300.0}]
+        trader_data = {"TestTrader": {"trade_count": 1, "latest": []}}
     else:
         market_data = get_market_data_for_day()
         trader_data = get_trader_performance()
@@ -177,8 +194,8 @@ def deep_analyze_and_evolve():
             if is_low_quality_context(report_md):
                 print("Evolution produced no usable report; skipped ALGO KB upload.")
                 return
-            conn = get_db_connection()
-            try:
+            
+            with closing(get_db_connection()) as conn:
                 candidate_id = create_candidate(
                     conn,
                     source="ai_evolution",
@@ -187,14 +204,17 @@ def deep_analyze_and_evolve():
                     metadata={"kind": "daily_evolution_report", "auto_promote": False},
                 )
                 print(f"Evolution candidate saved: id={candidate_id}")
-            finally:
-                conn.close()
-            filename = f"deep_dive_{datetime.now().strftime('%Y-%m-%d')}.md"
+                conn.commit()
+
+            filename = os.path.join(BASE_DIR, f"deep_dive_{datetime.now().strftime('%Y-%m-%d')}.md")
             with open(filename, "w") as f: f.write(report_md)
             upload_file_to_algo_kb(filename, log_func=print)
             send_telegram_status(f"🧬 <b>ЭВОЛЮЦИОННЫЙ АУДИТ ЗАВЕРШЕН</b>\nОтчет за {datetime.now().strftime('%Y-%m-%d')} загружен в ALGO KB.")
     except Exception as e:
         print(f"Evolution failed: {e}")
+
+if __name__ == "__main__":
+    deep_analyze_and_evolve()
 
 if __name__ == "__main__":
     deep_analyze_and_evolve()
