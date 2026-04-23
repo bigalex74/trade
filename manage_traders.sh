@@ -1,11 +1,14 @@
 #!/bin/bash
 # Мастер-контроллер Лиги Трейдеров (v2.0)
 
-TRADERS_DIR="/home/user/traders"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TRADERS_DIR="${PROJECT_DIR}/traders"
 LOG_DIR="/home/user/logs/traders"
 
 get_traders() {
-    ls "$TRADERS_DIR"/run_*.sh | xargs -n 1 basename | sed 's/^run_//;s/\.sh$//'
+    find "$TRADERS_DIR" -maxdepth 1 -type f -name 'run_*.sh' -printf '%f\n' \
+        | sed 's/^run_//;s/\.sh$//' \
+        | sort
 }
 
 start_trader() {
@@ -22,7 +25,7 @@ start_trader() {
         TRADER_FILE="$TRADERS_DIR/run_$TRADER.sh"
     fi
 
-    PID=$(pgrep -f "$(basename "$TRADER_FILE")")
+    PID=$(pgrep -f "$TRADER_FILE" | xargs)
     if [ -z "$PID" ]; then
         if [ "$DEBUG" = "debug" ]; then
             echo "[ DEBUG ] Starting $(basename "$TRADER_FILE") in debug mode..."
@@ -39,7 +42,7 @@ start_trader() {
 stop_trader() {
     local TRADER=$1
     echo "Stopping $TRADER..."
-    PID=$(pgrep -f "run_$TRADER.sh")
+    PID=$(pgrep -f "$TRADERS_DIR/run_$TRADER.sh" | xargs)
     if [ -n "$PID" ]; then
         kill "$PID"
         # Убиваем также активный процесс питона этого трейдера
@@ -54,7 +57,7 @@ status() {
     echo -e "TRADER\t\tSTATUS\t\tPID\t\tLOG_SIZE"
     echo "------------------------------------------------------------"
     for TRADER in $(get_traders); do
-        PID=$(pgrep -f "run_$TRADER.sh")
+        PID=$(pgrep -f "$TRADERS_DIR/run_$TRADER.sh" | xargs)
         LOG="$LOG_DIR/$TRADER.log"
         SIZE=$(du -h "$LOG" 2>/dev/null | cut -f1)
         [ -z "$SIZE" ] && SIZE="0"
@@ -74,7 +77,7 @@ status() {
     
     # Статус служебных воркеров
     for WORKER in "hourly_report" "matching_engine"; do
-        PID=$(pgrep -f "run_${WORKER}.sh")
+        PID=$(pgrep -f "$TRADERS_DIR/run_${WORKER}.sh" | xargs)
         LOG="$LOG_DIR/${WORKER}.log"
         SIZE=$(du -h "$LOG" 2>/dev/null | cut -f1)
         [ -z "$SIZE" ] && SIZE="0"
@@ -100,13 +103,13 @@ start_all() {
     done
 
     echo "Starting Hourly Report Worker..."
-    PID=$(pgrep -f "run_hourly_report.sh")
+    PID=$(pgrep -f "$TRADERS_DIR/run_hourly_report.sh" | xargs)
     if [ -z "$PID" ]; then
         nohup bash "$TRADERS_DIR/run_hourly_report.sh" > /dev/null 2>&1 &
     fi
 
     echo "Starting Order Matching Engine..."
-    PID_ME=$(pgrep -f "run_matching_engine.sh")
+    PID_ME=$(pgrep -f "$TRADERS_DIR/run_matching_engine.sh" | xargs)
     if [ -z "$PID_ME" ]; then
         nohup bash "$TRADERS_DIR/run_matching_engine.sh" > /dev/null 2>&1 &
     fi
@@ -127,7 +130,7 @@ case "$1" in
             stop_trader "$2"
         else
             echo "Stopping all Traders..."
-            pkill -f "run_.*.sh"
+            pkill -f "$TRADERS_DIR/run_.*.sh"
             pkill -f "ai_paper_trader.py"
         fi
         ;;

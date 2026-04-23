@@ -1,7 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
-cd /home/user
+PROJECT_DIR="${PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+PYTHON_BIN="${PYTHON_BIN:-/home/user/trading_venv/bin/python}"
+cd "$PROJECT_DIR"
 
 if [ -f "/home/user/.env.trading" ]; then
   set -a
@@ -21,4 +23,4 @@ export AI_INTERVAL_FULL_INTERVALS="${AI_INTERVAL_FULL_INTERVALS:-15,20,30,45,60,
 export AI_INTERVAL_FAST_INTERVALS="${AI_INTERVAL_FAST_INTERVALS:-5,10,15,20,30}"
 export AI_INTERVAL_EVENT_INTERVALS="${AI_INTERVAL_EVENT_INTERVALS:-5,10,15,20,30}"
 
-exec /home/user/trading_venv/bin/python /home/user/ai_dispatcher_interval_analyzer.py "$@"
+exec "$PYTHON_BIN" "${PROJECT_DIR}/ai_dispatcher_interval_analyzer.py" "$@"

@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+PROJECT_DIR="${PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 LOCK_FILE="/tmp/algo_kb_market_summary.lock"
-PYTHON_BIN="/home/user/trading_venv/bin/python3"
-SCRIPT="/home/user/algo_kb_market_summary.py"
+PYTHON_BIN="${PYTHON_BIN:-/home/user/trading_venv/bin/python3}"
+SCRIPT="${PROJECT_DIR}/algo_kb_market_summary.py"
 
 mkdir -p /home/user/logs
 

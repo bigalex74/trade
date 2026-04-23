@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 import requests
 
 # CONFIG
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TRADERS = [
     "VSA_Victor", "Chaos_Bill", "Elliott_Alex", "Contrarian_Ricardo", 
     "Quant_Diana", "PriceAction_Nikita", "Passive_Palych", 
@@ -15,14 +16,14 @@ LOG_DIR = "/home/user/logs/traders"
 TELEGRAM_CHAT_ID = "923741104"
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 PROXIES = {"http": "http://127.0.0.1:10808", "https": "http://127.0.0.1:10808"}
-MANAGE_SCRIPT = "/home/user/manage_traders.sh"
+MANAGE_SCRIPT = os.getenv("MANAGE_TRADERS_SCRIPT", os.path.join(BASE_DIR, "manage_traders.sh"))
 
 def send_alert(msg):
     if not TELEGRAM_TOKEN:
-        print(f"DEBUG ALERT (No Token/Local Run):\n{msg}")
+        print(f"ТЕСТОВОЕ УВЕДОМЛЕНИЕ (нет токена/локальный запуск):\n{msg}")
         return
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": f"🚨 <b>WATCHDOG ALERT</b>\n{msg}", "parse_mode": "HTML"}
+    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": f"<b>СИСТЕМНЫЙ МОНИТОР ТРЕЙДЕРОВ</b>\n{msg}", "parse_mode": "HTML"}
     try: requests.post(url, json=payload, proxies=PROXIES, timeout=10)
     except Exception as e: print(f"Failed to send Telegram alert: {e}")
 

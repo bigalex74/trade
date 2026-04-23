@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+PROJECT_DIR="${PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+
 if [ "$#" -lt 2 ]; then
   echo "usage: $0 <job_name> <script_path> [script_args...]" >&2
   exit 64
@@ -12,7 +14,7 @@ shift 2
 
 LOCK_FILE="/tmp/postmarket_${JOB_NAME}.lock"
 PYTHON_BIN="${PYTHON_BIN:-/home/user/trading_venv/bin/python}"
-INFISICAL_BIN="${INFISICAL_BIN:-/home/user/run_infisical_quiet.sh}"
+INFISICAL_BIN="${INFISICAL_BIN:-${PROJECT_DIR}/run_infisical_quiet.sh}"
 INFISICAL_PROJECT_ID="${INFISICAL_PROJECT_ID:-1d44cf0c-94b5-4e64-bccd-9c4da8843fec}"
 INFISICAL_ENV="${INFISICAL_ENV:-dev}"
 JOB_TIMEOUT_SECONDS="${POSTMARKET_AI_TIMEOUT_SECONDS:-1800}"
@@ -22,6 +24,7 @@ export AI_MAX_FALLBACKS_DAILY_REPORT="${AI_MAX_FALLBACKS_DAILY_REPORT:-2}"
 export AI_MAX_FALLBACKS_EVOLUTION="${AI_MAX_FALLBACKS_EVOLUTION:-2}"
 export AI_MAX_FALLBACKS_INCUBATOR="${AI_MAX_FALLBACKS_INCUBATOR:-2}"
 export AI_MAX_FALLBACKS_WATCHDOG="${AI_MAX_FALLBACKS_WATCHDOG:-2}"
+export AI_MODEL_RANK_FILE="${AI_MODEL_RANK_FILE:-${PROJECT_DIR}/ai_model_rank.json}"
 
 timestamp() {
   date -Is

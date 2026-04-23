@@ -1,9 +1,10 @@
 #!/bin/bash
 set -u
 
+PROJECT_DIR="${PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 LOCK_FILE="/tmp/crypto_hourly_report.lock"
-PYTHON_BIN="/home/user/trading_venv/bin/python"
-SCRIPT="/home/user/ai_crypto_hourly_report.py"
+PYTHON_BIN="${PYTHON_BIN:-/home/user/trading_venv/bin/python}"
+SCRIPT="${PROJECT_DIR}/ai_crypto_hourly_report.py"
 
 if [ -f "/home/user/.env.trading" ]; then
   set -a

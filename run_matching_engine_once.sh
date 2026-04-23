@@ -1,6 +1,9 @@
 #!/bin/bash
 set -u
 
+PROJECT_DIR="${PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+PYTHON_BIN="${PYTHON_BIN:-/home/user/trading_venv/bin/python}"
+
 if [ -f "/home/user/.env.trading" ]; then
   set -a
   # shellcheck disable=SC1091
@@ -9,4 +12,4 @@ if [ -f "/home/user/.env.trading" ]; then
 fi
 
 exec /usr/bin/flock -n /tmp/matching_engine_once.lock \
-  /home/user/trading_venv/bin/python /home/user/order_matching_engine.py
+  "$PYTHON_BIN" "${PROJECT_DIR}/order_matching_engine.py"

@@ -10,8 +10,13 @@ from ai_cost_guard import hourly_limit
 from ai_job_store import connect, encode_command, ensure_schema
 
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PYTHON_BIN = os.getenv("AI_JOB_PYTHON", "/home/user/trading_venv/bin/python")
-WORKER = os.getenv("AI_JOB_WORKER", "/home/user/ai_job_worker.py")
+WORKER = os.getenv("AI_JOB_WORKER", os.path.join(BASE_DIR, "ai_job_worker.py"))
+RUN_AI_TRADER = os.getenv("AI_JOB_RUN_AI_TRADER", os.path.join(BASE_DIR, "run_ai_trader_once.sh"))
+RUN_AI_CRYPTO_TRADER = os.getenv("AI_JOB_RUN_AI_CRYPTO_TRADER", os.path.join(BASE_DIR, "run_ai_crypto_trader_once.sh"))
+RUN_HOURLY_REPORT = os.getenv("AI_JOB_RUN_HOURLY_REPORT", os.path.join(BASE_DIR, "run_hourly_report_once.sh"))
+RUN_CRYPTO_HOURLY_REPORT = os.getenv("AI_JOB_RUN_CRYPTO_HOURLY_REPORT", os.path.join(BASE_DIR, "run_crypto_hourly_report_once.sh"))
 MAX_WORKERS = int(os.getenv("AI_JOB_MAX_WORKERS", "2"))
 START_BATCH = int(os.getenv("AI_JOB_START_BATCH", "1"))
 MAX_QUEUE_AGE_MINUTES = int(os.getenv("AI_JOB_MAX_QUEUE_AGE_MINUTES", "20"))
@@ -339,7 +344,7 @@ def queue_moex_traders(conn, traders, tick, tick_key, reason, priority=100):
             "moex",
             "trader",
             priority,
-            ["/home/user/run_ai_trader_once.sh", trader],
+            [RUN_AI_TRADER, trader],
             f"/home/user/logs/traders/{trader}.log",
             tick,
             trader,
@@ -511,7 +516,7 @@ def enqueue_due_jobs(conn, now):
                     "crypto",
                     "trader",
                     priority,
-                    ["/home/user/run_ai_crypto_trader_once.sh", trader],
+                    [RUN_AI_CRYPTO_TRADER, trader],
                     f"/home/user/logs/traders/crypto_{trader}.log",
                     tick,
                     trader,
@@ -526,7 +531,7 @@ def enqueue_due_jobs(conn, now):
             "moex",
             "hourly_report",
             80,
-            ["/home/user/run_hourly_report_once.sh"],
+            [RUN_HOURLY_REPORT],
             "/home/user/logs/traders/hourly_report.log",
             tick,
         )
@@ -538,7 +543,7 @@ def enqueue_due_jobs(conn, now):
             "crypto",
             "hourly_report",
             30,
-            ["/home/user/run_crypto_hourly_report_once.sh"],
+            [RUN_CRYPTO_HOURLY_REPORT],
             "/home/user/logs/traders/crypto_hourly_report.log",
             tick,
         )

@@ -13,6 +13,8 @@ from risk_engine import RiskSettings, review_actions
 from trader_consensus import load_weighted_consensus
 from trading_feature_contract import build_trader_market_payload, payload_stats
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # CONFIG
 DB_CONFIG = {
     "host": os.getenv("DB_HOST", "localhost"),
@@ -22,7 +24,7 @@ DB_CONFIG = {
 }
 TELEGRAM_CHAT_ID = "923741104"
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-MODEL_RANK_FILE = "/home/user/ai_model_rank.json"
+MODEL_RANK_FILE = os.getenv("AI_MODEL_RANK_FILE", os.path.join(BASE_DIR, "ai_model_rank.json"))
 LOG_FILE = "/home/user/logs/ai_trader.log"
 INITIAL_CAPITAL = 10000.0
 

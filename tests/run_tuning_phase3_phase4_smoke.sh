@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd /home/user
+PROJECT_DIR="${PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+cd "$PROJECT_DIR"
 
 PYTHON_BIN="${PYTHON_BIN:-/home/user/trading_venv/bin/python}"
-export GEMINI_BIN="/home/user/tests/fake_gemini_cli.py"
+export GEMINI_BIN="${PROJECT_DIR}/tests/fake_gemini_cli.py"
 export GEMINI_LOCK_PREFIX="tuning_smoke"
 export GEMINI_TIMEOUT_SECONDS="${GEMINI_TIMEOUT_SECONDS:-10}"
 export AI_COST_GUARD_ENABLED=1
@@ -71,7 +72,7 @@ print(cur.fetchone()[0])
 cur.close(); conn.close()
 PY
 )"
-out="$(RISK_MAX_GROSS_EXPOSURE_PCT=1.0 FAKE_GEMINI_SECID=AFLT FAKE_GEMINI_ACTION=buy "$PYTHON_BIN" /home/user/ai_paper_trader.py Chaos_Bill)"
+out="$(RISK_MAX_GROSS_EXPOSURE_PCT=1.0 FAKE_GEMINI_SECID=AFLT FAKE_GEMINI_ACTION=buy "$PYTHON_BIN" "${PROJECT_DIR}/ai_paper_trader.py" Chaos_Bill)"
 echo "$out"
 after_orders="$("$PYTHON_BIN" - <<'PY'
 import os, psycopg2
@@ -92,7 +93,7 @@ if ! grep -q "Risk review: accepted=1 rejected=0" <<<"$out"; then
 fi
 
 echo "[4/6] Trader dry-run rejects short actions"
-out="$(FAKE_GEMINI_SECID=SBER FAKE_GEMINI_ACTION=short "$PYTHON_BIN" /home/user/ai_paper_trader.py Chaos_Bill)"
+out="$(FAKE_GEMINI_SECID=SBER FAKE_GEMINI_ACTION=short "$PYTHON_BIN" "${PROJECT_DIR}/ai_paper_trader.py" Chaos_Bill)"
 echo "$out"
 if ! grep -q "Risk review: accepted=0 rejected=1" <<<"$out"; then
   echo "expected accepted=0 rejected=1 for short action" >&2
@@ -130,7 +131,7 @@ conn.commit()
 cur.close()
 conn.close()
 PY
-MATCHING_DRY_RUN=1 "$PYTHON_BIN" /home/user/order_matching_engine.py
+MATCHING_DRY_RUN=1 "$PYTHON_BIN" "${PROJECT_DIR}/order_matching_engine.py"
 "$PYTHON_BIN" - <<'PY'
 import os
 import psycopg2
@@ -159,6 +160,6 @@ conn.close()
 PY
 
 echo "[6/6] Existing phase1/phase2 smoke still passes"
-/home/user/tests/run_tuning_phase1_phase2_smoke.sh
+"${PROJECT_DIR}/tests/run_tuning_phase1_phase2_smoke.sh"
 
 echo "phase3/phase4 smoke tests passed"

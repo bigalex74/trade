@@ -1,9 +1,10 @@
 #!/bin/bash
 set -u
 
+PROJECT_DIR="${PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 LOCK_FILE="/tmp/ai_crypto_traders_dispatcher.lock"
 LOG_DIR="/home/user/logs/traders"
-RUNNER="/home/user/run_ai_crypto_trader_once.sh"
+RUNNER="${PROJECT_DIR}/run_ai_crypto_trader_once.sh"
 INTERVAL_SECONDS="${AI_CRYPTO_TRADER_STAGGER_SECONDS:-25}"
 
 TRADERS=(

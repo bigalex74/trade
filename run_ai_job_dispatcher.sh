@@ -1,6 +1,8 @@
 #!/bin/bash
 set -u
 
+PROJECT_DIR="${PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+PYTHON_BIN="${PYTHON_BIN:-/home/user/trading_venv/bin/python}"
 LOCK_FILE="/tmp/ai_job_dispatcher.lock"
 
 if [ -f "/home/user/.env.trading" ]; then
@@ -36,6 +38,12 @@ export AI_JOB_LOG_IDLE_DECISIONS="${AI_JOB_LOG_IDLE_DECISIONS:-1}"
 export AI_JOB_BUDGET_AWARE="${AI_JOB_BUDGET_AWARE:-1}"
 export AI_JOB_AI_REQUESTS_PER_TRADER_ESTIMATE="${AI_JOB_AI_REQUESTS_PER_TRADER_ESTIMATE:-2.0}"
 export AI_JOB_AI_CALL_RESERVE_TRADER="${AI_JOB_AI_CALL_RESERVE_TRADER:-2}"
+export AI_JOB_WORKER="${AI_JOB_WORKER:-${PROJECT_DIR}/ai_job_worker.py}"
+export AI_JOB_RUN_AI_TRADER="${AI_JOB_RUN_AI_TRADER:-${PROJECT_DIR}/run_ai_trader_once.sh}"
+export AI_JOB_RUN_AI_CRYPTO_TRADER="${AI_JOB_RUN_AI_CRYPTO_TRADER:-${PROJECT_DIR}/run_ai_crypto_trader_once.sh}"
+export AI_JOB_RUN_HOURLY_REPORT="${AI_JOB_RUN_HOURLY_REPORT:-${PROJECT_DIR}/run_hourly_report_once.sh}"
+export AI_JOB_RUN_CRYPTO_HOURLY_REPORT="${AI_JOB_RUN_CRYPTO_HOURLY_REPORT:-${PROJECT_DIR}/run_crypto_hourly_report_once.sh}"
+export AI_MODEL_RANK_FILE="${AI_MODEL_RANK_FILE:-${PROJECT_DIR}/ai_model_rank.json}"
 
 DISPATCH_TICKS="${AI_JOB_DISPATCH_TICKS:-3}"
 DISPATCH_INTERVAL_SECONDS="${AI_JOB_DISPATCH_INTERVAL_SECONDS:-25}"
@@ -48,7 +56,7 @@ fi
 
 tick=1
 while [ "$tick" -le "$DISPATCH_TICKS" ]; do
-  /home/user/trading_venv/bin/python /home/user/ai_job_dispatcher.py
+  "$PYTHON_BIN" "${PROJECT_DIR}/ai_job_dispatcher.py"
   if [ "$tick" -lt "$DISPATCH_TICKS" ]; then
     sleep "$DISPATCH_INTERVAL_SECONDS"
   fi

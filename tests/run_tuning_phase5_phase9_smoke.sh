@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd /home/user
+PROJECT_DIR="${PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+cd "$PROJECT_DIR"
 
 PYTHON_BIN="${PYTHON_BIN:-/home/user/trading_venv/bin/python}"
-export GEMINI_BIN="/home/user/tests/fake_gemini_cli.py"
+export GEMINI_BIN="${PROJECT_DIR}/tests/fake_gemini_cli.py"
 export GEMINI_LOCK_PREFIX="tuning_smoke"
 export GEMINI_TIMEOUT_SECONDS="${GEMINI_TIMEOUT_SECONDS:-10}"
 export AI_COST_GUARD_ENABLED=1
@@ -24,7 +25,7 @@ echo "[1/7] Python compile"
   risk_engine.py
 
 echo "[2/7] Refresh market regime"
-"$PYTHON_BIN" /home/user/market_regime.py
+"$PYTHON_BIN" "${PROJECT_DIR}/market_regime.py"
 
 echo "[3/7] Validate latest market regime and Meta consensus"
 "$PYTHON_BIN" - <<'PY'
@@ -92,7 +93,7 @@ finally:
     conn.close()
 PY
 )"
-"$PYTHON_BIN" /home/user/strategy_release_gate.py --candidate-id "$candidate_id" --dry-run | tee /tmp/strategy_gate_smoke.out
+"$PYTHON_BIN" "${PROJECT_DIR}/strategy_release_gate.py" --candidate-id "$candidate_id" --dry-run | tee /tmp/strategy_gate_smoke.out
 if ! grep -q "backtest_required" /tmp/strategy_gate_smoke.out; then
   echo "expected backtest_required release gate block" >&2
   exit 1
@@ -151,6 +152,6 @@ PY
 
 echo "[7/7] Trader dry-run still works with regime/sentiment/consensus hooks"
 AI_TRADER_DRY_RUN=1 FAKE_GEMINI_SECID=AFLT FAKE_GEMINI_ACTION=buy RISK_MAX_GROSS_EXPOSURE_PCT=1.0 \
-  "$PYTHON_BIN" /home/user/ai_paper_trader.py Chaos_Bill
+  "$PYTHON_BIN" "${PROJECT_DIR}/ai_paper_trader.py" Chaos_Bill
 
 echo "phase5/phase9 smoke tests passed"

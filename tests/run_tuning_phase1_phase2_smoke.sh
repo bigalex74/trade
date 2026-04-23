@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd /home/user
+PROJECT_DIR="${PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+cd "$PROJECT_DIR"
 
 PYTHON_BIN="${PYTHON_BIN:-/home/user/trading_venv/bin/python}"
-export GEMINI_BIN="/home/user/tests/fake_gemini_cli.py"
+export GEMINI_BIN="${PROJECT_DIR}/tests/fake_gemini_cli.py"
 export GEMINI_LOCK_PREFIX="tuning_smoke"
 export GEMINI_TIMEOUT_SECONDS="${GEMINI_TIMEOUT_SECONDS:-10}"
 export AI_COST_GUARD_ENABLED=1
@@ -24,7 +25,7 @@ echo "[1/6] Python compile"
   ai_cost_guard.py
 
 echo "[2/6] Install/refresh metrics views"
-"$PYTHON_BIN" /home/user/trading_metrics_setup.py
+"$PYTHON_BIN" "${PROJECT_DIR}/trading_metrics_setup.py"
 
 echo "[3/6] Validate metrics views"
 "$PYTHON_BIN" - <<'PY'
@@ -85,7 +86,7 @@ print(cur.fetchone()[0])
 cur.close(); conn.close()
 PY
 )"
-"$PYTHON_BIN" /home/user/ai_paper_trader.py Chaos_Bill
+"$PYTHON_BIN" "${PROJECT_DIR}/ai_paper_trader.py" Chaos_Bill
 after="$("$PYTHON_BIN" - <<'PY'
 import os
 import psycopg2
@@ -103,7 +104,7 @@ if [ "$before" != "$after" ]; then
 fi
 
 echo "[6/6] Backtester dry-run"
-"$PYTHON_BIN" /home/user/ai_backtester.py \
+"$PYTHON_BIN" "${PROJECT_DIR}/ai_backtester.py" \
   --start 2026-04-15 --end 2026-04-21 \
   --trader Chaos_Bill \
   --max-days 3 --max-symbols 5 --batch-days 2

@@ -1,14 +1,15 @@
 #!/bin/bash
 set -u
 
+PROJECT_DIR="${PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 TRADER="${1:-}"
 if [ -z "$TRADER" ]; then
   echo "Usage: $0 TRADER_NAME" >&2
   exit 2
 fi
 
-PYTHON_BIN="/home/user/trading_venv/bin/python"
-SCRIPT="/home/user/ai_paper_trader.py"
+PYTHON_BIN="${PYTHON_BIN:-/home/user/trading_venv/bin/python}"
+SCRIPT="${PROJECT_DIR}/ai_paper_trader.py"
 LOG_DIR="/home/user/logs/traders"
 
 mkdir -p "$LOG_DIR"
@@ -42,6 +43,7 @@ export AI_MODEL_COOLDOWN_EXHAUSTED_MINUTES_TRADER="${AI_MODEL_COOLDOWN_EXHAUSTED
 export AI_MODEL_COOLDOWN_TIMEOUT_MINUTES_TRADER="${AI_MODEL_COOLDOWN_TIMEOUT_MINUTES_TRADER:-15}"
 export AI_MODEL_FAILURE_THRESHOLD="${AI_MODEL_FAILURE_THRESHOLD:-3}"
 export AI_MODEL_HEALTH_WINDOW_MINUTES="${AI_MODEL_HEALTH_WINDOW_MINUTES:-30}"
+export AI_MODEL_RANK_FILE="${AI_MODEL_RANK_FILE:-${PROJECT_DIR}/ai_model_rank.json}"
 
 echo "[ $(date '+%Y-%m-%d %H:%M:%S') ] Cron tick: $TRADER"
 exec "$PYTHON_BIN" "$SCRIPT" "$TRADER"

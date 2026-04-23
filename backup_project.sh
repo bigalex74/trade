@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE_DIR="/home/user"
+BASE_DIR="${PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 BACKUP_ROOT="${PROJECT_BACKUP_ROOT:-/home/user/project_backup/scoped_archives}"
 TIMESTAMP="$(date '+%Y-%m-%d_%H-%M-%S')"
 ARCHIVE_PATH="$BACKUP_ROOT/trading_ops_$TIMESTAMP.tar.gz"

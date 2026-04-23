@@ -1,14 +1,15 @@
 #!/bin/bash
 set -u
 
+PROJECT_DIR="${PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 TRADER="${1:-}"
 if [ -z "$TRADER" ]; then
   echo "Usage: $0 TRADER_NAME" >&2
   exit 2
 fi
 
-PYTHON_BIN="/home/user/trading_venv/bin/python"
-SCRIPT="/home/user/ai_crypto_trader.py"
+PYTHON_BIN="${PYTHON_BIN:-/home/user/trading_venv/bin/python}"
+SCRIPT="${PROJECT_DIR}/ai_crypto_trader.py"
 LOG_DIR="/home/user/logs/traders"
 
 mkdir -p "$LOG_DIR"
@@ -28,6 +29,7 @@ export GEMINI_TIMEOUT_SECONDS="${GEMINI_TIMEOUT_SECONDS:-120}"
 export GEMINI_CONCURRENCY="${GEMINI_CONCURRENCY:-2}"
 export GEMINI_LOCK_WAIT_SECONDS="${GEMINI_LOCK_WAIT_SECONDS:-240}"
 export GEMINI_POOL="${GEMINI_POOL:-crypto}"
+export AI_MODEL_RANK_FILE="${AI_MODEL_RANK_FILE:-${PROJECT_DIR}/ai_model_rank.json}"
 
 echo "[ $(date '+%Y-%m-%d %H:%M:%S') ] Cron tick: $TRADER (Crypto)"
 exec "$PYTHON_BIN" "$SCRIPT" "$TRADER"

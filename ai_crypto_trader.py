@@ -10,6 +10,8 @@ if hasattr(sys.stdout, 'reconfigure'):
 from crypto_research_context import build_price_snapshot, compact_context_payload, load_market_context
 from gemini_cli_runner import call_ai_json_with_fallback
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # CONFIG
 DB_CONFIG = {
     "host": os.getenv("DB_HOST", "localhost"),
@@ -19,7 +21,7 @@ DB_CONFIG = {
 }
 TELEGRAM_CHAT_ID = "923741104"
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-MODEL_RANK_FILE = "/home/user/ai_model_rank.json"
+MODEL_RANK_FILE = os.getenv("AI_MODEL_RANK_FILE", os.path.join(BASE_DIR, "ai_model_rank.json"))
 LOG_FILE = "/home/user/logs/ai_crypto_trader.log"
 INITIAL_CAPITAL = 100.0
 

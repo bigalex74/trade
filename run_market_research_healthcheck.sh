@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+PROJECT_DIR="${PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 LOCK_FILE="/tmp/market_research_healthcheck.lock"
-PYTHON_BIN="/home/user/trading_venv/bin/python3"
-MAINTENANCE_SCRIPT="/home/user/market_research_maintenance.py"
+PYTHON_BIN="${PYTHON_BIN:-/home/user/trading_venv/bin/python3}"
+MAINTENANCE_SCRIPT="${PROJECT_DIR}/market_research_maintenance.py"
 
 mkdir -p /home/user/logs
 

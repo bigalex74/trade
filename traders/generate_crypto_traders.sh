@@ -7,7 +7,8 @@ TRADERS=(
     "Scalper_Kesha" "Value_Monya" "Index_Tracker" "Meta_Oracle"
 )
 
-TEMPLATE_DIR="/home/user/traders/crypto"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+TEMPLATE_DIR="${PROJECT_DIR}/traders/crypto"
 ENV_FILE="/home/user/.env.trading"
 
 mkdir -p "$TEMPLATE_DIR"
@@ -20,7 +21,7 @@ for TRADER in "${TRADERS[@]}"; do
 
 LOG_FILE="/home/user/logs/traders/crypto_$TRADER.log"
 PYTHON_BIN="/home/user/trading_venv/bin/python"
-SCRIPT="/home/user/ai_crypto_trader.py"
+SCRIPT="${PROJECT_DIR}/ai_crypto_trader.py"
 
 # Загрузка общих секретов из файла
 if [ -f "$ENV_FILE" ]; then

@@ -1,11 +1,14 @@
 #!/bin/bash
 # Мастер-контроллер Crypto Лиги
 
-TRADERS_DIR="/home/user/traders/crypto"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TRADERS_DIR="${PROJECT_DIR}/traders/crypto"
 LOG_DIR="/home/user/logs/traders"
 
 get_traders() {
-    ls "$TRADERS_DIR"/run_*.sh | xargs -n 1 basename | sed 's/^run_//;s/\.sh$//'
+    find "$TRADERS_DIR" -maxdepth 1 -type f -name 'run_*.sh' -printf '%f\n' \
+        | sed 's/^run_//;s/\.sh$//' \
+        | sort
 }
 
 start_trader() {
@@ -18,7 +21,7 @@ start_trader() {
         return
     fi
 
-    PID=$(pgrep -f "traders/crypto/run_$TRADER.sh")
+    PID=$(pgrep -f "$TRADER_FILE" | xargs)
     if [ -z "$PID" ]; then
         if [ "$DEBUG" = "debug" ]; then
             echo "[ DEBUG ] Starting $(basename "$TRADER_FILE") in debug mode..."
@@ -35,7 +38,7 @@ start_trader() {
 stop_trader() {
     local TRADER=$1
     echo "Stopping $TRADER (Crypto)..."
-    PID=$(pgrep -f "traders/crypto/run_$TRADER.sh")
+    PID=$(pgrep -f "$TRADERS_DIR/run_$TRADER.sh" | xargs)
     if [ -n "$PID" ]; then
         kill "$PID"
         # Убиваем также активный процесс питона этого трейдера
@@ -51,7 +54,7 @@ status() {
     echo "------------------------------------------------------------"
     for TRADER in $(get_traders); do
         # Ищем точное совпадение пути скрипта
-        PID=$(pgrep -f "/home/user/traders/crypto/run_$TRADER.sh" | xargs)
+        PID=$(pgrep -f "$TRADERS_DIR/run_$TRADER.sh" | xargs)
         LOG="/home/user/logs/traders/crypto_$TRADER.log"
         if [ "$TRADER" = "hourly_report" ]; then
              LOG="/home/user/logs/traders/crypto_hourly_report.log"
@@ -88,7 +91,7 @@ start_all() {
     done
 
     echo "Starting Crypto Hourly Report Worker..."
-    PID_H=$(pgrep -f "traders/crypto/run_hourly_report.sh")
+    PID_H=$(pgrep -f "$TRADERS_DIR/run_hourly_report.sh" | xargs)
     if [ -z "$PID_H" ]; then
         nohup bash "$TRADERS_DIR/run_hourly_report.sh" > /dev/null 2>&1 &
     fi
@@ -109,7 +112,7 @@ case "$1" in
             stop_trader "$2"
         else
             echo "Stopping all Crypto Traders..."
-            pkill -f "traders/crypto/run_.*.sh"
+            pkill -f "$TRADERS_DIR/run_.*.sh"
             pkill -f "ai_crypto_trader.py"
         fi
         ;;
