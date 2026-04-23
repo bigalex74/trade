@@ -10,9 +10,11 @@ export AI_RAG_EMBEDDING_PROVIDER=hash
 export AI_RAG_HASH_VECTOR_SIZE=64
 export AI_RAG_SETUPS_COLLECTION=trade_setups_memory_smoke
 export AI_RAG_NEWS_COLLECTION=market_news_memory_smoke
+export AI_RAG_MARKET_COLLECTION=market_snapshots_memory_smoke
 export AI_RAG_MAX_CHARS=3000
 export AI_RAG_SETUPS_LIMIT=3
 export AI_RAG_NEWS_LIMIT=3
+export AI_RAG_MARKET_LIMIT=2
 export AI_RAG_NEWS_MAX_AGE_HOURS=720
 
 cleanup() {
@@ -24,6 +26,7 @@ from hybrid_rag import QdrantMemoryClient
 qdrant = QdrantMemoryClient()
 qdrant.delete_collection(os.environ["AI_RAG_SETUPS_COLLECTION"])
 qdrant.delete_collection(os.environ["AI_RAG_NEWS_COLLECTION"])
+qdrant.delete_collection(os.environ["AI_RAG_MARKET_COLLECTION"])
 
 conn = psycopg2.connect(
     host=os.getenv("DB_HOST", "localhost"),
@@ -34,6 +37,17 @@ conn = psycopg2.connect(
 try:
     with conn.cursor() as cur:
         cur.execute("DELETE FROM trading.journal WHERE trader_name = %s", ("__rag_smoke",))
+        cur.execute(
+            """
+            DELETE FROM raw.news_instrument_match
+            WHERE news_id IN (
+                SELECT news_id
+                FROM raw.news_item
+                WHERE source = %s AND external_id = %s
+            )
+            """,
+            ("rag_smoke", "hybrid-rag-smoke"),
+        )
         cur.execute("DELETE FROM raw.news_item WHERE source = %s AND external_id = %s", ("rag_smoke", "hybrid-rag-smoke"))
     conn.commit()
 finally:
@@ -101,17 +115,6 @@ try:
             ),
         )
         news_id = cur.fetchone()[0]
-        cur.execute("SELECT instrument_id FROM ref.instrument WHERE secid = 'SBER' LIMIT 1")
-        row = cur.fetchone()
-        if row:
-            cur.execute(
-                """
-                INSERT INTO raw.news_instrument_match (news_id, instrument_id, matched_keywords, confidence)
-                VALUES (%s, %s, 'SBER', 1.0)
-                ON CONFLICT DO NOTHING
-                """,
-                (news_id, row[0]),
-            )
     conn.commit()
 finally:
     conn.close()
@@ -137,6 +140,8 @@ if "RAG_TRADES" not in ctx:
     raise SystemExit("missing trade setup memory")
 if "RAG_NEWS" not in ctx:
     raise SystemExit("missing news memory")
+if "RAG_MARKET" not in ctx:
+    raise SystemExit("missing market snapshot memory")
 if "SBER" not in ctx:
     raise SystemExit("missing SBER context")
 PY
@@ -152,6 +157,10 @@ if stats["setups"]["skipped"] < 1:
     raise SystemExit("expected setup skip on second index")
 if stats["news"]["skipped"] < 1:
     raise SystemExit("expected news skip on second index")
+if stats["news"].get("keyword_matched", 0) < 1:
+    raise SystemExit("expected keyword news match")
+if stats["market"]["skipped"] < 1:
+    raise SystemExit("expected market snapshot skip on second index")
 PY
 
 echo "hybrid RAG smoke tests passed"
