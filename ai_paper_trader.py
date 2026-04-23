@@ -9,6 +9,7 @@ if hasattr(sys.stdout, 'reconfigure'):
 
 from market_research_context import build_price_snapshot, compact_context_payload, load_market_context
 from gemini_cli_runner import call_ai_json_with_fallback
+from hybrid_rag import build_trader_rag_context
 from risk_engine import RiskSettings, review_actions
 from trader_consensus import load_weighted_consensus
 from trading_feature_contract import build_trader_market_payload, payload_stats
@@ -432,6 +433,15 @@ def main():
         "Index_Tracker": "Mirror market moves. Focus on Macro indicators (USD, Gold, Oil) and their correlation with stocks.",
         "Meta_Oracle": "Collective Mind. You analyze the recent trades of the other 10 AI agents (LEAGUE TRADES). You buy ONLY when multiple independent algorithms buy the same asset. You use 3x position sizing."
     }
+    rag_context = build_trader_rag_context(
+        trader_name=name,
+        strategy=TRADERS_DATA[name]["strategy"],
+        market_features=filtered_market,
+        positions=positions,
+        recent_history=recent_history,
+        market_regime=market_regime,
+        log_func=log_event,
+    )
     prompt_parts = [
         f"Act as {name}. DNA: {TRADERS_DATA[name]['strategy']}. Traits: {traits}. Cash: {cash}.",
         f"MARKET REGIME: {market_regime} ({market_breadth:.1f}% stocks > SMA50). Adjust actions accordingly.",
@@ -439,13 +449,32 @@ def main():
         f"Macro: {json.dumps(compact_context_payload(market_context.get('USD000UTSTOM')))}.",
         f"MARKET FEATURES: {json.dumps(filtered_market, ensure_ascii=False, separators=(',', ':'))}.",
         f"STRATEGIC GUIDELINE: {EXPERT_GUIDES.get(name, 'Use all indicators to maximize profit.')}",
+        f"HYBRID RAG CONTEXT: {rag_context}" if rag_context else "",
         f"LEAGUE TRADES (For Oracle): {league_recent_trades}" if name == "Meta_Oracle" else "",
         f"LEAGUE RATINGS (For Oracle): {league_ratings}. Give more weight to signals from agents with higher activity/volume." if name == "Meta_Oracle" else "",
         "TECHNICAL MANUAL: - Alligator: Jaw(Blue), Teeth(Red), Lips(Green). Open mouth = trend. - CK_STOP: Chande Kroll Stop for exits. PSAR: Parabolic SAR for trend. - TSI: True Strength Index. RVI: Relative Vigor Index. CHOP: >61 means sideways market.",
         "ORDER TYPES: You can use 'buy', 'sell' (market execution). You can also use 'limit_buy', 'limit_sell', 'stop_loss' (must provide 'target_price'). You can use 'short' to short-sell, and 'cover' to close a short.",
         f"1. Query 'lightrag-algo' for '{TRADERS_DATA[name]['query']}'. 2. Respond ONLY raw JSON object with keys: summary, market_bias, confidence, actions (array with secid, action, target_price (optional), reason), risk_notes."
     ]
-    prompt = " ".join(prompt_parts)
+    prompt = " ".join(part for part in prompt_parts if part)
+    prompt_limit = int(os.getenv("AI_PROMPT_MAX_CHARS_TRADER", os.getenv("AI_PROMPT_MAX_CHARS", "8000")))
+    prompt_margin = int(os.getenv("AI_RAG_PROMPT_MARGIN_CHARS", "120"))
+    if rag_context and len(prompt) > prompt_limit:
+        overflow = len(prompt) - prompt_limit + prompt_margin
+        if len(rag_context) > overflow + int(os.getenv("AI_RAG_MIN_CHARS", "240")):
+            keep_chars = max(0, len(rag_context) - overflow - 1)
+            rag_context = rag_context[:keep_chars].rstrip() + "…"
+            log_event(f"[{name}] Hybrid RAG trimmed to fit prompt budget: chars={len(rag_context)}")
+        else:
+            rag_context = ""
+            log_event(f"[{name}] Hybrid RAG skipped: prompt budget too tight ({len(prompt)}>{prompt_limit})")
+        prompt_parts = [
+            part if not part.startswith("HYBRID RAG CONTEXT:") else (
+                f"HYBRID RAG CONTEXT: {rag_context}" if rag_context else ""
+            )
+            for part in prompt_parts
+        ]
+        prompt = " ".join(part for part in prompt_parts if part)
     decisions, used_model = call_ai_with_fallback(prompt, models, trader_name=name)
     if decisions is not None:
         execute_trade_actions(name, decisions.get("actions", []), cash, snapshots, used_model, market_features=filtered_market)

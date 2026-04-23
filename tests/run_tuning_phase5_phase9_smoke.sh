@@ -9,6 +9,7 @@ export GEMINI_BIN="${PROJECT_DIR}/tests/fake_gemini_cli.py"
 export GEMINI_LOCK_PREFIX="tuning_smoke"
 export GEMINI_TIMEOUT_SECONDS="${GEMINI_TIMEOUT_SECONDS:-10}"
 export AI_COST_GUARD_ENABLED=1
+export AI_RAG_ENABLED=0
 chmod +x "$GEMINI_BIN"
 
 echo "[1/7] Python compile"
@@ -19,6 +20,7 @@ echo "[1/7] Python compile"
   strategy_release_gate.py \
   ai_cost_guard.py \
   gemini_cli_runner.py \
+  hybrid_rag.py \
   ai_paper_trader.py \
   ai_evolution.py \
   ai_genetic_incubator.py \
