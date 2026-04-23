@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT_DIR="${PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+USER_HOME="${HOME:-/home/user}"
 LOCK_FILE="/tmp/market_research_cleanup_intraday.lock"
-PYTHON_BIN="${PYTHON_BIN:-/home/user/trading_venv/bin/python3}"
+PYTHON_BIN="${PYTHON_BIN:-${USER_HOME}/trading_venv/bin/python3}"
 MAINTENANCE_SCRIPT="${PROJECT_DIR}/market_research_maintenance.py"
 
-mkdir -p /home/user/logs
+mkdir -p "${USER_HOME}/logs"
 
 timestamp() {
   date -Is

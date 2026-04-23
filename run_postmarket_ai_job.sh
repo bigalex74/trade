@@ -13,7 +13,8 @@ SCRIPT_PATH="$2"
 shift 2
 
 LOCK_FILE="/tmp/postmarket_${JOB_NAME}.lock"
-PYTHON_BIN="${PYTHON_BIN:-/home/user/trading_venv/bin/python}"
+USER_HOME="${HOME:-/home/user}"
+PYTHON_BIN="${PYTHON_BIN:-${USER_HOME}/trading_venv/bin/python}"
 INFISICAL_BIN="${INFISICAL_BIN:-${PROJECT_DIR}/run_infisical_quiet.sh}"
 INFISICAL_PROJECT_ID="${INFISICAL_PROJECT_ID:-1d44cf0c-94b5-4e64-bccd-9c4da8843fec}"
 INFISICAL_ENV="${INFISICAL_ENV:-dev}"

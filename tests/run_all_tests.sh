@@ -22,7 +22,10 @@ python3 /home/user/trade/tests/test_risk_engine_full.py
 echo -e "\n5. [UNIT] Smart Limits (Journal/Orders logic)..."
 python3 /home/user/trade/tests/test_risk_smart_limits.py
 
-echo -e "\n6. [SYNTAX] All Python files..."
+echo -e "\n6. [UNIT] Post-market Logic (Incubator & Evolution)..."
+python3 /home/user/trade/tests/test_postmarket_logic.py
+
+echo -e "\n7. [SYNTAX] All Python files..."
 find /home/user/trade -name "*.py" -maxdepth 2 -exec python3 -m py_compile {} +
 
 echo -e "\n========================================"
