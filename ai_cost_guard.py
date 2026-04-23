@@ -278,10 +278,11 @@ def model_unhealthy_reason(model_id: str, category: str) -> Optional[str]:
                 SELECT count(*)
                 FROM trading.ai_call_log
                 WHERE model_id = %s
+                  AND category = %s
                   AND status = ANY(%s)
                   AND created_at > clock_timestamp() - (%s || ' minutes')::interval
                 """,
-                (model_id, list(FAILURE_STATUSES), window_minutes),
+                (model_id, category, list(FAILURE_STATUSES), window_minutes),
             )
             failures = cur.fetchone()[0]
         conn.commit()
@@ -429,6 +430,15 @@ def log_call(
                 error_class=error_class,
                 error=error,
             )
+            if model_id and status == "success":
+                cur.execute(
+                    """
+                    DELETE FROM trading.ai_model_cooldown
+                    WHERE model_id = %s
+                      AND category = %s
+                    """,
+                    (model_id, category),
+                )
             if debug_io_enabled():
                 prompt_text, prompt_truncated = debug_clip(prompt or "")
                 response_text, response_truncated = debug_clip(response or "")

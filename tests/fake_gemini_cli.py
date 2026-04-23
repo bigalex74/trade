@@ -5,6 +5,22 @@ import sys
 import time
 
 
+args = sys.argv
+model = ""
+if "--model" in args:
+    try:
+        model = args[args.index("--model") + 1]
+    except Exception:
+        model = ""
+
+timeout_models = {item.strip() for item in os.getenv("FAKE_GEMINI_TIMEOUT_MODELS", "").split(",") if item.strip()}
+capacity_models = {item.strip() for item in os.getenv("FAKE_GEMINI_CAPACITY_MODELS", "").split(",") if item.strip()}
+if model in timeout_models:
+    time.sleep(float(os.getenv("FAKE_GEMINI_TIMEOUT_SLEEP", "10")))
+if model in capacity_models:
+    print("429 quota exhausted", file=sys.stderr)
+    raise SystemExit(1)
+
 mode = os.getenv("FAKE_GEMINI_MODE", "valid")
 if mode == "slow":
     time.sleep(float(os.getenv("FAKE_GEMINI_SLEEP", "2")))
@@ -15,7 +31,6 @@ if mode == "invalid_json":
     print("not-json")
     raise SystemExit(0)
 
-args = sys.argv
 prompt = ""
 if "-p" in args:
     try:

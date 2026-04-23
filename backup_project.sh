@@ -9,6 +9,7 @@ ARCHIVE_PATH="$BACKUP_ROOT/trading_ops_$TIMESTAMP.tar.gz"
 INCLUDE_PATHS=(
   "docs"
   "ai_model_rank.json"
+  "ai_cost_guard.py"
   "algo_kb_client.py"
   "algo_kb_market_summary.py"
   "gemini_cli_runner.py"
@@ -47,6 +48,7 @@ INCLUDE_PATHS=(
   "run_market_research_refresh_intraday.sh"
   "run_matching_engine_once.sh"
   "logrotate-trading.conf"
+  "tests"
 )
 
 mkdir -p "$BACKUP_ROOT"

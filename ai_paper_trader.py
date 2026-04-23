@@ -131,6 +131,44 @@ def call_ai_with_fallback(prompt, models_rank, trader_name=None):
         trader_name=trader_name,
     )
 
+
+def get_latest_ai_failure_reason(trader_name):
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT model_id, status, error_class, error, prompt_chars
+            FROM trading.ai_call_log
+            WHERE trader_name = %s OR call_name = %s
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (trader_name, trader_name),
+        )
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+    except Exception:
+        row = None
+    if not row:
+        return "причина не определена, смотри лог трейдера"
+
+    model_id, status, error_class, error, prompt_chars = row
+    if status == "budget_blocked" and error_class == "prompt_too_large":
+        return f"запрос превысил лимит ({prompt_chars} символов)"
+    if status == "budget_blocked" and error_class == "hourly_limit":
+        return "сработал часовой лимит ИИ-запросов"
+    if status == "timeout":
+        return f"модель {model_id} не ответила за отведенное время"
+    if status == "model_skipped":
+        return f"модель {model_id} временно на паузе после предыдущей ошибки"
+    if status == "exhausted":
+        return f"модель {model_id} вернула лимит или перегрузку"
+    if error_class:
+        return "техническая ошибка ИИ-вызова, подробности в логе трейдера"
+    return "причина не определена, смотри лог трейдера"
+
 # SECTOR MAPPING FOR CORRELATION PROTECTION
 SECTOR_MAP = {
     "ROSN": "OIL", "LKOH": "OIL", "SNGSP": "OIL", "TATN": "OIL",
@@ -382,7 +420,12 @@ def main():
     # META-ORACLE: Получение списка сделок всей Лиги за последний час
     league_recent_trades = ""
     if name == "Meta_Oracle":
-        cur.execute("SELECT trader_name, action, secid, created_at FROM trading.journal WHERE created_at > now() - interval '1 hour' ORDER BY created_at DESC LIMIT 20")
+        oracle_trades_limit = int(os.getenv("AI_META_ORACLE_LEAGUE_TRADES_LIMIT", "12"))
+        cur.execute(
+            "SELECT trader_name, action, secid, created_at FROM trading.journal "
+            "WHERE created_at > now() - interval '1 hour' ORDER BY created_at DESC LIMIT %s",
+            (oracle_trades_limit,),
+        )
         league_recent_trades = " | ".join([f"[{r[3].strftime('%H:%M')}] {r[0]} {r[1]} {r[2]}" for r in cur.fetchall()])
 
     filtered_market = build_trader_market_payload(stock_context, name)
@@ -414,7 +457,7 @@ def main():
 
     league_ratings = []
     if name == "Meta_Oracle":
-        league_ratings = load_weighted_consensus(conn, limit=10)
+        league_ratings = load_weighted_consensus(conn, limit=int(os.getenv("AI_META_ORACLE_RATINGS_LIMIT", "6")))
 
     cur.close(); conn.close()
     log_event(f"[{name}] Market features: {payload_stats(filtered_market)}")
@@ -442,21 +485,25 @@ def main():
         market_regime=market_regime,
         log_func=log_event,
     )
-    prompt_parts = [
-        f"Act as {name}. DNA: {TRADERS_DATA[name]['strategy']}. Traits: {traits}. Cash: {cash}.",
-        f"MARKET REGIME: {market_regime} ({market_breadth:.1f}% stocks > SMA50). Adjust actions accordingly.",
-        f"Portfolio (with PnL): {json.dumps(positions)}.", f"Recent History: {'; '.join(recent_history)}.",
-        f"Macro: {json.dumps(compact_context_payload(market_context.get('USD000UTSTOM')))}.",
-        f"MARKET FEATURES: {json.dumps(filtered_market, ensure_ascii=False, separators=(',', ':'))}.",
-        f"STRATEGIC GUIDELINE: {EXPERT_GUIDES.get(name, 'Use all indicators to maximize profit.')}",
-        f"HYBRID RAG CONTEXT: {rag_context}" if rag_context else "",
-        f"LEAGUE TRADES (For Oracle): {league_recent_trades}" if name == "Meta_Oracle" else "",
-        f"LEAGUE RATINGS (For Oracle): {league_ratings}. Give more weight to signals from agents with higher activity/volume." if name == "Meta_Oracle" else "",
-        "TECHNICAL MANUAL: - Alligator: Jaw(Blue), Teeth(Red), Lips(Green). Open mouth = trend. - CK_STOP: Chande Kroll Stop for exits. PSAR: Parabolic SAR for trend. - TSI: True Strength Index. RVI: Relative Vigor Index. CHOP: >61 means sideways market.",
-        "ORDER TYPES: You can use 'buy', 'sell' (market execution). You can also use 'limit_buy', 'limit_sell', 'stop_loss' (must provide 'target_price'). You can use 'short' to short-sell, and 'cover' to close a short.",
-        f"1. Query 'lightrag-algo' for '{TRADERS_DATA[name]['query']}'. 2. Respond ONLY raw JSON object with keys: summary, market_bias, confidence, actions (array with secid, action, target_price (optional), reason), risk_notes."
-    ]
-    prompt = " ".join(part for part in prompt_parts if part)
+    def render_prompt(market_payload, rag_block, history_items, oracle_trades, oracle_ratings):
+        prompt_parts = [
+            f"Act as {name}. DNA: {TRADERS_DATA[name]['strategy']}. Traits: {traits}. Cash: {cash}.",
+            f"MARKET REGIME: {market_regime} ({market_breadth:.1f}% stocks > SMA50). Adjust actions accordingly.",
+            f"Portfolio (with PnL): {json.dumps(positions)}.",
+            f"Recent History: {'; '.join(history_items)}.",
+            f"Macro: {json.dumps(compact_context_payload(market_context.get('USD000UTSTOM')))}.",
+            f"MARKET FEATURES: {json.dumps(market_payload, ensure_ascii=False, separators=(',', ':'))}.",
+            f"STRATEGIC GUIDELINE: {EXPERT_GUIDES.get(name, 'Use all indicators to maximize profit.')}",
+            f"HYBRID RAG CONTEXT: {rag_block}" if rag_block else "",
+            f"LEAGUE TRADES (For Oracle): {oracle_trades}" if name == "Meta_Oracle" else "",
+            f"LEAGUE RATINGS (For Oracle): {oracle_ratings}. Give more weight to signals from agents with higher activity/volume." if name == "Meta_Oracle" else "",
+            "TECHNICAL MANUAL: - Alligator: Jaw(Blue), Teeth(Red), Lips(Green). Open mouth = trend. - CK_STOP: Chande Kroll Stop for exits. PSAR: Parabolic SAR for trend. - TSI: True Strength Index. RVI: Relative Vigor Index. CHOP: >61 means sideways market.",
+            "ORDER TYPES: You can use 'buy', 'sell' (market execution). You can also use 'limit_buy', 'limit_sell', 'stop_loss' (must provide 'target_price'). You can use 'short' to short-sell, and 'cover' to close a short.",
+            f"1. Query 'lightrag-algo' for '{TRADERS_DATA[name]['query']}'. 2. Respond ONLY raw JSON object with keys: summary, market_bias, confidence, actions (array with secid, action, target_price (optional), reason), risk_notes."
+        ]
+        return " ".join(part for part in prompt_parts if part)
+
+    prompt = render_prompt(filtered_market, rag_context, recent_history, league_recent_trades, league_ratings)
     prompt_limit = int(os.getenv("AI_PROMPT_MAX_CHARS_TRADER", os.getenv("AI_PROMPT_MAX_CHARS", "8000")))
     prompt_margin = int(os.getenv("AI_RAG_PROMPT_MARGIN_CHARS", "120"))
     if rag_context and len(prompt) > prompt_limit:
@@ -468,16 +515,35 @@ def main():
         else:
             rag_context = ""
             log_event(f"[{name}] Hybrid RAG skipped: prompt budget too tight ({len(prompt)}>{prompt_limit})")
-        prompt_parts = [
-            part if not part.startswith("HYBRID RAG CONTEXT:") else (
-                f"HYBRID RAG CONTEXT: {rag_context}" if rag_context else ""
-            )
-            for part in prompt_parts
-        ]
-        prompt = " ".join(part for part in prompt_parts if part)
+        prompt = render_prompt(filtered_market, rag_context, recent_history, league_recent_trades, league_ratings)
+    if len(prompt) > prompt_limit and name == "Meta_Oracle" and len(league_ratings) > 3:
+        original_ratings = len(league_ratings)
+        league_ratings = league_ratings[:3]
+        prompt = render_prompt(filtered_market, rag_context, recent_history, league_recent_trades, league_ratings)
+        log_event(f"[{name}] League ratings trimmed for prompt budget: {original_ratings}->3")
+    min_symbols = int(os.getenv("AI_TRADER_MIN_SYMBOLS", "5"))
+    original_symbols = len(filtered_market)
+    while len(prompt) > prompt_limit and len(filtered_market) > min_symbols:
+        filtered_market = dict(list(filtered_market.items())[:-1])
+        prompt = render_prompt(filtered_market, rag_context, recent_history, league_recent_trades, league_ratings)
+    if len(filtered_market) != original_symbols:
+        log_event(f"[{name}] Market features trimmed for prompt budget: {original_symbols}->{len(filtered_market)}")
+    if len(prompt) > prompt_limit and recent_history:
+        recent_history = recent_history[:1]
+        prompt = render_prompt(filtered_market, rag_context, recent_history, league_recent_trades, league_ratings)
+        log_event(f"[{name}] Recent history trimmed for prompt budget.")
+    if len(prompt) > prompt_limit and rag_context:
+        rag_context = ""
+        prompt = render_prompt(filtered_market, rag_context, recent_history, league_recent_trades, league_ratings)
+        log_event(f"[{name}] Hybrid RAG removed after final prompt budget check.")
+    if len(prompt) > prompt_limit:
+        log_event(f"[{name}] Prompt remains above budget after trimming: {len(prompt)}>{prompt_limit}.")
     decisions, used_model = call_ai_with_fallback(prompt, models, trader_name=name)
     if decisions is not None:
         execute_trade_actions(name, decisions.get("actions", []), cash, snapshots, used_model, market_features=filtered_market)
-    else: send_telegram(f"🔴 <b>{name}</b>: Ошибка! Все AI модели недоступны.")
+    else:
+        reason = get_latest_ai_failure_reason(name)
+        log_event(f"[{name}] AI decision unavailable: {reason}.")
+        send_telegram(f"🔴 <b>{name}</b>: ИИ-решение не получено. Причина: {html.escape(reason)}.")
 
 if __name__ == "__main__": main()

@@ -88,6 +88,11 @@ def brief_output(stdout, stderr, limit=300):
     return ((stderr or "") + "\n" + (stdout or "")).strip().replace("\n", " ")[:limit]
 
 
+def attempt_timeout_seconds(category: str) -> int:
+    category_key = f"GEMINI_ATTEMPT_TIMEOUT_SECONDS_{category.upper()}"
+    return max(1, int(os.getenv(category_key, os.getenv("GEMINI_ATTEMPT_TIMEOUT_SECONDS", str(GEMINI_TIMEOUT_SECONDS)))))
+
+
 def _gemini_env():
     env = os.environ.copy()
     env["HOME"] = GEMINI_TRADER_HOME
@@ -165,11 +170,12 @@ def call_gemini_with_fallback(
                     log_func(f"[{name or 'AI'}] Model {model_id} skipped by health guard: {unhealthy_reason}.")
                 continue
 
-            remaining = max(1, int(GEMINI_TIMEOUT_SECONDS - (time.monotonic() - started)))
-            if remaining <= 1:
+            remaining_total = max(1, int(GEMINI_TIMEOUT_SECONDS - (time.monotonic() - started)))
+            if remaining_total <= 1:
                 if log_func:
                     log_func(f"[{name or 'AI'}] AI timeout after {GEMINI_TIMEOUT_SECONDS}s.")
                 break
+            attempt_timeout = min(remaining_total, attempt_timeout_seconds(category))
 
             if model_id.startswith("ollama/"):
                 attempts += 1
@@ -179,7 +185,7 @@ def call_gemini_with_fallback(
                             ["ollama", "run", model_id.replace("ollama/", ""), prompt],
                             capture_output=True,
                             text=True,
-                            timeout=remaining,
+                            timeout=attempt_timeout,
                         )
                     if res.returncode == 0 and "{" in res.stdout:
                         raw = res.stdout[res.stdout.find("{"):res.stdout.rfind("}") + 1]
@@ -217,15 +223,15 @@ def call_gemini_with_fallback(
                         model_id=model_id,
                         prompt=prompt,
                         response="",
-                        duration_seconds=remaining,
+                        duration_seconds=attempt_timeout,
                         status="timeout",
                         error_class="timeout",
-                        error=f"timeout after {remaining}s",
+                        error=f"timeout after {attempt_timeout}s",
                         fallback_index=fallback_index,
                     )
                     if log_func:
                         log_func(f"[{name or 'AI'}] Model {model_id} timed out.")
-                    break
+                    continue
                 except Exception as exc:
                     ai_cost_guard.log_call(
                         category=category,
@@ -266,7 +272,7 @@ def call_gemini_with_fallback(
                         cmd,
                         capture_output=True,
                         text=True,
-                        timeout=remaining,
+                        timeout=attempt_timeout,
                         env=_gemini_env(),
                         cwd=GEMINI_WORKDIR,
                     )
@@ -356,15 +362,15 @@ def call_gemini_with_fallback(
                     model_id=model_id,
                     prompt=prompt,
                     response="",
-                    duration_seconds=remaining,
+                    duration_seconds=attempt_timeout,
                     status="timeout",
                     error_class="timeout",
-                    error=f"timeout after {remaining}s",
+                    error=f"timeout after {attempt_timeout}s",
                     fallback_index=fallback_index,
                 )
                 if log_func:
                     log_func(f"[{name or 'AI'}] Model {model_id} timed out.")
-                break
+                continue
             except Exception as exc:
                 ai_cost_guard.log_call(
                     category=category,
