@@ -25,6 +25,9 @@ TZ = ZoneInfo(os.getenv("AI_JOB_TZ", "Europe/Moscow"))
 def _gemini_env():
     env = os.environ.copy()
     env["GEMINI_TRADER_HOME"] = GEMINI_TRADER_HOME
+    # Добавляем путь к Node.js, чтобы /usr/bin/env node работал
+    node_bin_dir = os.path.join(HOME_DIR, ".nvm/versions/node/v24.14.0/bin")
+    env["PATH"] = f"{node_bin_dir}:{env.get('PATH', '')}"
     return env
 
 def acquire_gemini_slot():
