@@ -244,6 +244,9 @@ def _base_candidate(action: dict, state: dict, prices: dict, features: dict, set
             "reason": action.get("reason", "AI Signal")
         }, None
 
+    if act_type == "hold":
+        return None, None # Валидное действие, но ордер не нужен
+
     return None, "unsupported_action_type"
 
 def review_actions(conn, trader_name: str, actions: list[dict], snaps: dict, features: dict, settings: RiskSettings = None, use_shadow: bool = False) -> dict:

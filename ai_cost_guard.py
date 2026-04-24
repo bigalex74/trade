@@ -113,6 +113,10 @@ def preflight(model_id: str, category: str) -> GuardDecision:
         return GuardDecision(allowed=False, reason=reason)
     return GuardDecision(allowed=True)
 
+def hourly_limit(category: str) -> bool:
+    """Заглушка для обратной совместимости. Всегда True, контроль в preflight."""
+    return True
+
 class timer:
     def __enter__(self):
         self.start = time.perf_counter()
