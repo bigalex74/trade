@@ -129,4 +129,3 @@ if __name__ == "__main__":
     log_dir = "/home/user/logs/analytics"
     log_path = os.path.join(log_dir, f"events_{target_date}.jsonl")
     analyze_logs(log_path, target_date, auto_mode=is_auto)
-EOF
