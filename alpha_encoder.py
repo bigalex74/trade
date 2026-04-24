@@ -60,4 +60,3 @@ if __name__ == "__main__":
         upload_to_qdrant(deals)
     else:
         print("No temp deals file found. Run alpha_extractor.py first.")
-EOF
