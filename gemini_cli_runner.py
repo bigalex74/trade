@@ -84,10 +84,8 @@ def call_gemini_with_fallback(
             continue
 
         cmd = [GEMINI_BIN, "--model", model_id, "--prompt", prompt]
-        if output_format == "json":
-            cmd.append("--json")
-            if response_schema:
-                cmd.extend(["--schema", json.dumps(response_schema, ensure_ascii=False)])
+        # Мы удалили --json и --format, так как текущая версия бинарника их не поддерживает.
+        # Полагаемся на структурированный промпт и наш умный parse_json_response.
 
         slot, lock_handle = acquire_gemini_slot()
         if slot is None:
