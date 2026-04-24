@@ -5,6 +5,7 @@ import os
 import subprocess
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+import pandas_market_calendars as mcal
 
 from ai_cost_guard import hourly_limit
 from ai_job_store import connect, encode_command, ensure_schema
@@ -107,16 +108,40 @@ def ensure_dispatcher_log_schema(conn):
 
 
 def is_moex_session(now):
-    if now.weekday() > 4:
+    # Продвинутая проверка сессии через производственный календарь (XMOS = Moscow Exchange)
+    moex = mcal.get_calendar('XMOS')
+    # Используем дату в локальной зоне для запроса расписания
+    schedule = moex.schedule(start_date=now.date(), end_date=now.date())
+    if schedule.empty:
         return False
-    if now.hour < 10:
+    
+    # MOEX обычно торгуется до 23:50. Берем время закрытия из расписания
+    market_open = schedule.iloc[0]['market_open']
+    market_close = schedule.iloc[0]['market_close']
+    
+    # Конвертируем 'now' в UTC для корректного сравнения с расписанием
+    now_utc = now.astimezone(ZoneInfo("UTC"))
+    
+    # Запас в 10 минут до закрытия (чтобы не открывать позиции в последние минуты)
+    effective_close = market_close - timedelta(minutes=10)
+    
+    return market_open <= now_utc <= effective_close
+
+def check_data_readiness(conn, now):
+    # Pre-flight Readiness Gate: проверяем, что данные свежие
+    with conn.cursor() as cur:
+        cur.execute("SELECT max(updated_at) FROM analytics.trader_market_windows")
+        last_update = cur.fetchone()[0]
+    
+    if not last_update:
         return False
-    if now.hour > 23:
-        return False
-    if now.hour == 23 and now.minute >= 50:
+        
+    # Данные должны быть не старше 30 минут от текущего времени
+    age_minutes = (now.astimezone(ZoneInfo("UTC")) - last_update.astimezone(ZoneInfo("UTC"))).total_seconds() / 60
+    if age_minutes > 30:
+        log(f"Data readiness failed: Market data is {age_minutes:.1f} minutes old.")
         return False
     return True
-
 
 def bucket(now):
     return now.replace(second=0, microsecond=0)
@@ -651,6 +676,12 @@ def main():
         ensure_schema(conn)
         ensure_dispatcher_log_schema(conn)
         now = datetime.now(TZ)
+        
+        # Pre-flight Readiness Gate
+        if is_moex_session(now) and not check_data_readiness(conn, now):
+            log("Readiness Gate FAILED. Skipping dispatch cycle.")
+            return
+
         enqueue_due_jobs(conn, now)
         mark_stale(conn)
         start_available_jobs(conn)
