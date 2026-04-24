@@ -2,9 +2,11 @@ import psycopg2
 import json
 import os
 import sys
+import requests
+import threading
 from datetime import datetime, timedelta
 from contextlib import closing
-from gemini_cli_runner import call_ai_json_with_fallback, call_ai_markdown_with_fallback
+from gemini_cli_runner import call_ai_json_with_fallback
 
 # CONFIG
 DB_CONFIG = {
@@ -13,16 +15,27 @@ DB_CONFIG = {
     "user": os.getenv("DB_USER", "n8n_user"),
     "password": os.getenv("DB_PASSWORD", "n8n_db_password"),
 }
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = "923741104"
+PROXIES = {"http": "http://127.0.0.1:10808", "https": "http://127.0.0.1:10808"}
 
 def get_db_connection(): return psycopg2.connect(**DB_CONFIG)
 
+def send_telegram(message):
+    if not TELEGRAM_TOKEN: return
+    def _send():
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"}
+        try:
+            requests.post(url, json=payload, proxies=PROXIES, timeout=30)
+        except Exception: pass
+    threading.Thread(target=_send, daemon=True).start()
+
 def get_troubled_samples(trader_name, limit=5):
-    """Находит в логах моменты, где трейдер получил отказ или сомневался."""
     samples = []
     try:
         with closing(get_db_connection()) as conn:
             with conn.cursor() as cur:
-                # Берем логи, где было много отказов риска или низкий confidence (если есть)
                 cur.execute("""
                     SELECT prompt_text, response_text, created_at
                     FROM trading.ai_io_debug_log
@@ -41,55 +54,60 @@ def tune_trader_prompt(trader_name):
     print(f"--- Self-Tuning Session for {trader_name} ---")
     samples = get_troubled_samples(trader_name)
     if not samples:
-        print(f"No troubled samples found for {trader_name}. Using general performance audit.")
-        return
+        print(f"No troubled samples found for {trader_name}.")
+        return None
 
-    # 1. Просим ИИ проанализировать ошибки и предложить улучшение промпта
     meta_prompt = f"""
-    ROLE: Prompt Engineer & Trading Quant.
-    TARGET TRADER: {trader_name}
+    ROLE: Prompt Engineer & Trading Quant. TARGET TRADER: {trader_name}
     FAILING SAMPLES: {json.dumps(samples, ensure_ascii=False)[:8000]}
-    
-    TASK:
-    1. Analyze why the trader was rejected by risk or made suboptimal decisions.
-    2. Propose a SPECIFIC addition to his 'Learned Traits' to fix this.
-    3. The rule must be concise and algorithmic (e.g., 'If volatility > X, then Y').
-    
+    TASK: 1. Analyze mistakes. 2. Propose SPECIFIC concise addition to 'Learned Traits' to fix it.
     RESPOND ONLY IN JSON: {{"analysis": "...", "proposed_trait": "..."}}
     """
     
-    # Используем Pro модель для глубокого анализа (10 мин таймаут)
     models = ["gemini-3.1-pro-preview", "gemini-2.5-pro"]
     tuning_data, _ = call_ai_json_with_fallback(meta_prompt, models, name=f"Tuner:{trader_name}", category="tuner")
     
     if tuning_data and tuning_data.get("proposed_trait"):
         new_trait = tuning_data["proposed_trait"]
-        print(f"Applying new trait for {trader_name}: {new_trait}")
-        
-        # 2. Сохраняем в БД (добавляем к существующим чертам)
+        analysis = tuning_data.get("analysis", "Mistake pattern correction.")
         try:
             with closing(get_db_connection()) as conn:
                 with conn.cursor() as cur:
                     cur.execute("""
                         UPDATE trading.trader_config
-                        SET learned_traits = learned_traits || ' ' || %s,
-                            updated_at = NOW()
+                        SET learned_traits = learned_traits || ' ' || %s, updated_at = NOW()
                         WHERE trader_name = %s
                     """, (new_trait, trader_name))
                 conn.commit()
-            print(f"Successfully updated DNA for {trader_name}.")
+            return {"trader": trader_name, "problem": analysis, "fix": new_trait}
         except Exception as e:
             print(f"Failed to save DNA update: {e}")
+    return None
 
 if __name__ == "__main__":
+    results = []
     if len(sys.argv) > 1:
-        tune_trader_prompt(sys.argv[1])
+        res = tune_trader_prompt(sys.argv[1]); 
+        if res: results.append(res)
     else:
-        # Если запущен без аргументов - тюним всю лигу
         with closing(get_db_connection()) as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT trader_name FROM trading.portfolio")
                 traders = [r[0] for r in cur.fetchall()]
         for t in traders:
-            tune_trader_prompt(t)
-EOF
+            res = tune_trader_prompt(t)
+            if res: results.append(res)
+            
+    if results:
+        report = [
+            "🧠 <b>ОТЧЕТ ПО САМООБУЧЕНИЮ ИИ (ВЫХОДНЫЕ)</b>",
+            "━━━━━━━━━━━━━━━━━━",
+            "✅ <b>ЧТО СДЕЛАНО:</b>",
+            f"Проведен анализ {len(results)} трейдеров на основе ошибок прошлой недели.",
+            "\n❌ <b>ВЫЯВЛЕННЫЕ ПРОБЛЕМЫ И ИСПРАВЛЕНИЯ:</b>"
+        ]
+        for r in results:
+            report.append(f"\n👤 <b>{r['trader']}</b>:")
+            report.append(f"• <u>Проблема</u>: {r['problem'][:200]}...")
+            report.append(f"• <u>Исправлено</u>: {r['fix']}")
+        send_telegram("\n".join(report))
