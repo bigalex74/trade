@@ -700,6 +700,15 @@ def start_available_jobs(conn):
                 conn.commit()
 
 
+def check_system_ready(conn):
+    """Проверка глобального флага готовности системы из Heartbeat."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT value FROM trading.system_status WHERE key = 'system_ready'")
+            row = cur.fetchone()
+            return row[0] if row else False
+    except: return False
+
 def main():
     conn = connect()
     try:
@@ -707,7 +716,12 @@ def main():
         ensure_dispatcher_log_schema(conn)
         now = datetime.now(TZ)
         
-        # Pre-flight Readiness Gate
+        # 1. Проверка блокировки системы (Safety Gate)
+        if is_moex_session(now) and not check_system_ready(conn):
+            log("CRITICAL: System is NOT READY (Heartbeat failed). Blocking all trades.")
+            return
+
+        # 2. Pre-flight Readiness Gate (Свежесть данных)
         if is_moex_session(now) and not check_data_readiness(conn, now):
             log("Readiness Gate FAILED. Skipping dispatch cycle.")
             return
