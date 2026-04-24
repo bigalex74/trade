@@ -26,7 +26,7 @@ def test_smart_limits():
         prices = {"SBER": 300.0}
         actions = [{"secid": "SBER", "action": "buy", "quantity": 1, "reason": "test"}] * 10
         
-        result = review_actions(conn, "Scalper_Kesha", actions, prices, settings=settings)
+        result = review_actions(conn, "Scalper_Kesha", actions, prices, {}, settings=settings)
         
         print(f"Total actions requested: {len(actions)}")
         print(f"Accepted: {len(result['accepted'])}")
