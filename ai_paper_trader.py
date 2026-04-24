@@ -188,7 +188,11 @@ def main():
         stock_context = {secid: payload for secid, payload in market_context.items() if payload.get('engine') == 'stock'}
         snapshots = build_price_snapshot(stock_context)
         
+        # RADAR: Получаем аномалии за последние 30 минут для отладки
         cur = conn.cursor()
+        cur.execute("SELECT DISTINCT secid FROM analytics.market_radar_log WHERE created_at > now() - interval '30 minutes'")
+        radar_anomalies = [r[0] for r in cur.fetchall()]
+        
         prefix = "shadow_" if use_shadow else ""
         cur.execute(f"SELECT cash_balance FROM trading.{prefix}portfolio WHERE trader_name = %s", (name,))
         row = cur.fetchone(); 
@@ -222,7 +226,7 @@ def main():
     prompt_market = compact_prompt_market_payload(build_trader_market_payload(stock_context, name))
     rag_context = build_trader_rag_context(trader_name=name, strategy=TRADERS_DATA[name]["strategy"], market_features=prompt_market, positions=positions, recent_history=recent_history, log_func=log_event)
     
-    prompt = f"ROLE={name}; DNA={TRADERS_DATA[name]['strategy']}; traits={traits}; cash={float(cash):.2f}. POS={json.dumps(compact_positions_for_prompt(positions))}. MKT={json.dumps(prompt_market)}. RAG={rag_context}. Return ONLY JSON: actions[{{secid,action,target_price,reason}}]."
+    prompt = f"ROLE={name}; DNA={TRADERS_DATA[name]['strategy']}; traits={traits}; cash={float(cash):.2f}. POS={json.dumps(compact_positions_for_prompt(positions))}. MKT={json.dumps(prompt_market)}. RAG={rag_context}. RADAR_ALERTS={','.join(radar_anomalies)}. Return ONLY JSON: actions[{{secid,action,target_price,reason}}]."
     
     decisions, used_model = call_ai_with_fallback(prompt, models, trader_name=name)
     if decisions:
