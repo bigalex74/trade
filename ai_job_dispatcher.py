@@ -452,6 +452,30 @@ def queue_moex_wave(
     return inserted
 
 
+def queue_shadow_traders(conn, tick, tick_key):
+    """Постановка в очередь теневых клонов из таблицы shadow_portfolio."""
+    inserted = 0
+    with conn.cursor() as cur:
+        cur.execute("SELECT trader_name FROM trading.shadow_portfolio WHERE is_active = TRUE")
+        shadow_traders = [r[0] for r in cur.fetchall()]
+        
+    for trader in shadow_traders:
+        inserted += int(enqueue_job(
+            conn,
+            f"shadow:trader:{trader}:{tick_key}",
+            "moex",
+            "trader",
+            50, # Ниже приоритет чем у основных
+            [RUN_AI_TRADER, "--shadow", trader],
+            f"/home/user/logs/traders/shadow_{trader}.log",
+            tick,
+            trader,
+        ))
+    if inserted:
+        log(f"Queued SHADOW trader wave {tick_key}: inserted={inserted}.")
+    return inserted
+
+
 def enqueue_due_jobs(conn, now):
     tick = bucket(now)
     tick_key = tick.strftime("%Y%m%d%H%M")
@@ -459,6 +483,12 @@ def enqueue_due_jobs(conn, now):
     if is_moex_session(now):
         metrics = moex_market_move_metrics(conn)
         counts = active_trader_job_counts(conn, "moex")
+        
+        # Запуск теневых клонов (параллельно с основными, если есть место в пуле)
+        # Мы запускаем их каждую быструю волну (например раз в 10 мин)
+        if interval_due(now, FAST_WAVE_INTERVAL_MINUTES):
+            queue_shadow_traders(conn, tick, tick_key)
+
         if counts["pending"]:
             if now.second < 10:
                 log(f"Skipped MOEX trader wave {tick_key}: pending={counts['pending']}.")
