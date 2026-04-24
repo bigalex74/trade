@@ -111,20 +111,21 @@ def call_ai_with_fallback(prompt, models_rank, trader_name=None):
     preferred_models = [m["id"] if isinstance(m, dict) else str(m) for m in models_rank]
     return call_ai_json_with_fallback(prompt, models=preferred_models, name=trader_name or "AI Trader", log_func=log_event, category="trader", trader_name=trader_name)
 
-def execute_trade_actions(trader_name, actions, current_cash, snapshots, model_id, market_features=None):
-    # Внутренняя функция теперь использует Decimal
+def execute_trade_actions(trader_name, actions, current_cash, snapshots, model_id, market_features=None, use_shadow=False):
+    # Внутренняя функция теперь использует Decimal и поддерживает тень
     with closing(get_db_connection()) as conn:
         try:
-            review = review_actions(conn, trader_name, actions or [], snapshots, market_features or {}, settings=RiskSettings.from_env())
+            review = review_actions(conn, trader_name, actions or [], snapshots, market_features or {}, settings=RiskSettings.from_env(), use_shadow=use_shadow)
             accepted = review.get("accepted", [])
             rejected = review.get("rejected", [])
-            log_event(f"[{trader_name}] Risk review: accepted={len(accepted)} rejected={len(rejected)}")
+            log_event(f"[{trader_name}] {'[SHADOW] ' if use_shadow else ''}Risk review: accepted={len(accepted)} rejected={len(rejected)}")
             
             if accepted:
                 cur = conn.cursor()
+                prefix = "shadow_" if use_shadow else ""
                 for order in accepted:
-                    cur.execute("""
-                        INSERT INTO trading.orders (trader_name, secid, order_type, quantity, target_price, status, model_id, reason)
+                    cur.execute(f"""
+                        INSERT INTO trading.{prefix}orders (trader_name, secid, order_type, quantity, target_price, status, model_id, reason)
                         VALUES (%s, %s, %s, %s, %s, 'PENDING', %s, %s)
                     """, (trader_name, order["secid"], order["order_type"], order["quantity"], order["target_price"], model_id, order.get("reason", "")))
                 conn.commit()
@@ -134,8 +135,18 @@ def execute_trade_actions(trader_name, actions, current_cash, snapshots, model_i
             return None
 
 def main():
-    if len(sys.argv) < 2 or sys.argv[1] not in TRADERS_DATA: return
-    name = sys.argv[1]
+    if len(sys.argv) < 2: return
+    
+    # Парсинг аргументов
+    name = None
+    use_shadow = "--shadow" in sys.argv
+    for arg in sys.argv[1:]:
+        if not arg.startswith("--"):
+            name = arg
+            break
+            
+    if not name or name not in TRADERS_DATA: return
+    
     with open(MODEL_RANK_FILE) as f: models = sorted(json.load(f)['models'], key=lambda x: x['priority'])
     
     with closing(get_db_connection()) as conn:
@@ -145,10 +156,18 @@ def main():
         snapshots = build_price_snapshot(stock_context)
         
         cur = conn.cursor()
-        cur.execute("SELECT cash_balance FROM trading.portfolio WHERE trader_name = %s", (name,))
-        row = cur.fetchone(); cash = _decimal(row[0]) if row else Decimal("0.0")
+        prefix = "shadow_" if use_shadow else ""
+        cur.execute(f"SELECT cash_balance FROM trading.{prefix}portfolio WHERE trader_name = %s", (name,))
+        row = cur.fetchone(); 
+        if not row and use_shadow:
+            # Авто-инициализация клона если его еще нет в тени
+            cur.execute(f"INSERT INTO trading.shadow_portfolio (trader_name, cash_balance) VALUES (%s, %s)", (name, INITIAL_CAPITAL))
+            conn.commit()
+            cash = INITIAL_CAPITAL
+        else:
+            cash = _decimal(row[0]) if row else Decimal("0.0")
         
-        cur.execute("SELECT secid, quantity, avg_entry_price FROM trading.position WHERE trader_name = %s AND quantity > 0", (name,))
+        cur.execute(f"SELECT secid, quantity, avg_entry_price FROM trading.{prefix}position WHERE trader_name = %s AND quantity > 0", (name,))
         positions = []
         for r in cur.fetchall():
             secid, qty, avg_p = r[0], int(r[1]), _decimal(r[2])
@@ -157,12 +176,12 @@ def main():
             positions.append({"secid": secid, "qty": qty, "avg_price": avg_p, "curr_price": curr_p, "pnl_pct": round(float(pnl), 2)})
             
         cur.execute("SELECT learned_traits FROM trading.trader_config WHERE trader_name = %s", (name,)); traits = cur.fetchone()[0]
-        cur.execute("SELECT action, secid, quantity, price, created_at FROM trading.journal WHERE trader_name = %s ORDER BY created_at DESC LIMIT 3", (name,))
+        cur.execute(f"SELECT action, secid, quantity, price, created_at FROM trading.{prefix}journal WHERE trader_name = %s ORDER BY created_at DESC LIMIT 3", (name,))
         recent_history = [f"{r[4].strftime('%H:%M')} {r[0]} {r[1]} x{r[2]} @{r[3]}" for r in cur.fetchall()]
         
         league_recent_trades = ""
         if name == "Meta_Oracle":
-            cur.execute("SELECT trader_name, action, secid FROM trading.journal WHERE created_at > now() - interval '1 hour' ORDER BY created_at DESC LIMIT 10")
+            cur.execute(f"SELECT trader_name, action, secid FROM trading.{prefix}journal WHERE created_at > now() - interval '1 hour' ORDER BY created_at DESC LIMIT 10")
             league_recent_trades = " | ".join([f"{r[0]} {r[1]} {r[2]}" for r in cur.fetchall()])
             league_ratings = load_weighted_consensus(conn)
         else: league_ratings = []
@@ -174,13 +193,13 @@ def main():
     
     decisions, used_model = call_ai_with_fallback(prompt, models, trader_name=name)
     if decisions:
-        log_analytics_event(name, "ai_response", {"model": used_model, "decision": decisions})
-        review = execute_trade_actions(name, decisions.get("actions", []), cash, snapshots, used_model, market_features=prompt_market)
+        log_analytics_event(name, "ai_response", {"model": used_model, "decision": decisions, "is_shadow": use_shadow})
+        review = execute_trade_actions(name, decisions.get("actions", []), cash, snapshots, used_model, market_features=prompt_market, use_shadow=use_shadow)
         if review:
-            log_analytics_event(name, "risk_review", {"accepted": len(review.get("accepted", [])), "rejected": len(review.get("rejected", [])), "rejection_reasons": [r.get("reason") for r in review.get("rejected", [])], "state": review.get("state")})
+            log_analytics_event(name, "risk_review", {"accepted": len(review.get("accepted", [])), "rejected": len(review.get("rejected", [])), "rejection_reasons": [r.get("reason") for r in review.get("rejected", [])], "state": review.get("state"), "is_shadow": use_shadow})
     else:
         reason = get_latest_ai_failure_reason(name)
-        log_analytics_event(name, "ai_failed", {"reason": reason})
-        send_telegram(f"🔴 <b>{name}</b>: ИИ-решение не получено. {reason}")
+        log_analytics_event(name, "ai_failed", {"reason": reason, "is_shadow": use_shadow})
+        send_telegram(f"🔴 <b>{name} {'(SHADOW)' if use_shadow else ''}</b>: ИИ-решение не получено. {reason}")
 
 if __name__ == "__main__": main()
