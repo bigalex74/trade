@@ -67,6 +67,25 @@ def send_telegram(message):
     # Запуск отправки в отдельном потоке (fire-and-forget)
     threading.Thread(target=_send, daemon=True).start()
 
+def log_analytics_event(trader_name, event_type, data):
+    """Записывает структурированное событие для последующего анализа."""
+    # Логи храним в подпапке analytics, по одному файлу на день
+    analytics_dir = os.path.join(LOG_DIR, "analytics")
+    os.makedirs(analytics_dir, exist_ok=True)
+    filename = os.path.join(analytics_dir, f"events_{datetime.now().strftime('%Y-%m-%d')}.jsonl")
+    
+    event = {
+        "timestamp": datetime.now().isoformat(),
+        "trader": trader_name,
+        "event": event_type,
+        "data": data
+    }
+    try:
+        with open(filename, "a") as f:
+            f.write(json.dumps(event, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
 def format_money(val): return f"{float(val):,.2f}"
 def format_pct(val): return f"{float(val):+.2f}%"
 def format_trade_time(dt): return dt.strftime("%H:%M")
@@ -574,8 +593,22 @@ def main():
         log_event(f"[{name}] Prompt remains above budget after trimming: {len(prompt)}>{prompt_limit}.")
     decisions, used_model = call_ai_with_fallback(prompt, models, trader_name=name)
     if decisions is not None:
-        execute_trade_actions(name, decisions.get("actions", []), cash, snapshots, used_model, market_features=filtered_market)
+        log_analytics_event(name, "ai_response", {
+            "model": used_model,
+            "actions_count": len(decisions.get("actions", [])),
+            "confidence": decisions.get("confidence"),
+            "decision": decisions
+        })
+        review = execute_trade_actions(name, decisions.get("actions", []), cash, snapshots, used_model, market_features=filtered_market)
+        if review:
+            log_analytics_event(name, "risk_review", {
+                "accepted": len(review.get("accepted", [])),
+                "rejected": len(review.get("rejected", [])),
+                "rejection_reasons": [r.get("reason") for r in review.get("rejected", [])],
+                "state": review.get("state")
+            })
     else:
+        log_analytics_event(name, "ai_failed", {"prompt_len": len(prompt)})
         reason = get_latest_ai_failure_reason(name)
         log_event(f"[{name}] AI decision unavailable: {reason}.")
         send_telegram(f"🔴 <b>{name}</b>: ИИ-решение не получено. Причина: {html.escape(reason)}.")
