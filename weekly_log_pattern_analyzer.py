@@ -1,6 +1,8 @@
 import psycopg2
 import json
 import os
+import requests
+import threading
 from contextlib import closing
 from collections import Counter
 from datetime import datetime, timedelta
@@ -13,6 +15,19 @@ DB_CONFIG = {
     "user": os.getenv("DB_USER", "n8n_user"),
     "password": os.getenv("DB_PASSWORD", "n8n_db_password"),
 }
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = "923741104"
+PROXIES = {"http": "http://127.0.0.1:10808", "https": "http://127.0.0.1:10808"}
+
+def send_telegram(message):
+    if not TELEGRAM_TOKEN: return
+    def _send():
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"}
+        try:
+            requests.post(url, json=payload, proxies=PROXIES, timeout=30)
+        except Exception: pass
+    threading.Thread(target=_send, daemon=True).start()
 
 def analyze_systemic_patterns():
     print("--- Starting Weekly Big Data Pattern Mining ---")
@@ -30,7 +45,6 @@ def analyze_systemic_patterns():
     try:
         with closing(psycopg2.connect(**DB_CONFIG)) as conn:
             with conn.cursor() as cur:
-                # 1. Анализируем технические сбои
                 cur.execute("""
                     SELECT model_id, status, count(*) 
                     FROM trading.ai_call_log 
@@ -40,13 +54,12 @@ def analyze_systemic_patterns():
                 for model, status, count in cur.fetchall():
                     analysis_results["total_calls"] += count
                     if status == "timeout":
-                        analysis_results["timeouts_by_model"][model] += count
+                        analysis_results["timeouts_by_model"][model or "unknown"] += count
                         analysis_results["failed_calls"] += count
                     elif status == "parse_error":
-                        analysis_results["parse_errors_by_model"][model] += count
+                        analysis_results["parse_errors_by_model"][model or "unknown"] += count
                         analysis_results["failed_calls"] += count
 
-                # 2. Анализируем паттерны риск-движка
                 cur.execute("""
                     SELECT risk_reasons
                     FROM trading.daily_log_stats
@@ -57,7 +70,6 @@ def analyze_systemic_patterns():
                     for reason, count in reasons.items():
                         analysis_results["common_risk_rejections"][reason] += count
 
-        # 3. Просим ИИ сделать "Staff Conclusion" на основе этой статистики
         meta_stats = f"""
         WEEKLY STATISTICS ({start_date.date()} to {end_date.date()}):
         - Total AI Calls: {analysis_results['total_calls']}
@@ -69,8 +81,8 @@ def analyze_systemic_patterns():
         prompt = f"""
         ROLE: Principal Site Reliability Engineer & Quant.
         DATA: {meta_stats}
-        TASK: Identify top 3 systemic issues in the trading infrastructure or algorithms.
-        PROPOSE: 1 technical fix and 1 algorithmic fix.
+        TASK: Identify top 3 systemic issues in the trading infrastructure or algorithms. 
+        What was done, identified problems, and how to fix them.
         """
 
         report_md, used_model = call_ai_markdown_with_fallback(
@@ -78,9 +90,9 @@ def analyze_systemic_patterns():
         )
 
         if report_md:
-            print(f"\n--- SYSTEMIC PATTERN REPORT ({used_model}) ---")
+            header = f"🛠 <b>SRE WEEKLY AUDIT & PATTERNS</b>\nМодель: {used_model}\n━━━━━━━━━━━━━━━━━━\n"
+            send_telegram(header + report_md)
             print(report_md)
-            # В реальном сценарии мы бы отправили это в Telegram
             
     except Exception as e:
         print(f"Pattern analysis FAILED: {e}")
