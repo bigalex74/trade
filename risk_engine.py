@@ -82,45 +82,23 @@ def normalize_prices(snaps: dict[str, Any], market_features: dict[str, dict[str,
             prices[str(secid).upper()] = price
     return prices
 
-def _loss_streak(cur, trader_name: str, settings: RiskSettings) -> tuple[int, datetime | None]:
-    if settings.cooldown_losses <= 0:
-        return 0, None
-    cur.execute(
-        """
-        SELECT is_win, created_at
-        FROM trading.journal
-        WHERE trader_name = %s
-          AND is_win IS NOT NULL
-        ORDER BY created_at DESC
-        LIMIT %s
-        """,
-        (trader_name, settings.cooldown_losses),
-    )
-    rows = cur.fetchall()
-    streak = 0
-    last_at = None
-    for is_win, created_at in rows:
-        if is_win:
-            break
-        streak += 1
-        last_at = last_at or created_at
-    return streak, last_at
-
-def load_risk_state(conn, trader_name: str, prices: dict[str, Decimal], settings: RiskSettings) -> dict[str, Any]:
+def load_risk_state(conn, trader_name: str, prices: dict[str, Decimal], settings: RiskSettings, use_shadow: bool = False) -> dict[str, Any]:
     cur = conn.cursor()
+    schema = "trading"
+    prefix = "shadow_" if use_shadow else ""
     
-    cur.execute("SELECT cash_balance FROM trading.portfolio WHERE trader_name = %s", (trader_name,))
+    cur.execute(f"SELECT cash_balance FROM {schema}.{prefix}portfolio WHERE trader_name = %s", (trader_name,))
     row = cur.fetchone()
-    cash = _decimal(row[0]) if row else Decimal("0.0")
+    cash = _decimal(row[0]) if row else Decimal("10000.0") # Дефолтный капитал для новых клонов
 
-    cur.execute("SELECT secid, quantity, avg_entry_price FROM trading.position WHERE trader_name = %s", (trader_name,))
+    cur.execute(f"SELECT secid, quantity, avg_entry_price FROM {schema}.{prefix}position WHERE trader_name = %s", (trader_name,))
     positions = {}
     for r in cur.fetchall():
         positions[r[0]] = {"quantity": _int(r[1]), "avg_entry_price": _decimal(r[2])}
 
-    cur.execute("""
+    cur.execute(f"""
         SELECT order_type, quantity, target_price, secid
-        FROM trading.orders
+        FROM {schema}.{prefix}orders
         WHERE trader_name = %s AND status = 'PENDING'
     """, (trader_name,))
     pending_orders = []
@@ -135,9 +113,9 @@ def load_risk_state(conn, trader_name: str, prices: dict[str, Decimal], settings
             pending_sell_qty[secid] = pending_sell_qty.get(secid, 0) + qty
 
     cur.execute(
-        """
+        f"""
         SELECT count(*)
-        FROM trading.journal
+        FROM {schema}.{prefix}journal
         WHERE trader_name = %s
           AND created_at >= CURRENT_DATE
           AND upper(action) IN ('BUY', 'SELL', 'SHORT', 'COVER')
@@ -148,7 +126,26 @@ def load_risk_state(conn, trader_name: str, prices: dict[str, Decimal], settings
     pending_count = len(pending_orders)
     day_action_count = filled_today + pending_count
 
-    streak, last_at = _loss_streak(cur, trader_name, settings)
+    # Серия убытков для тени считается из теневого журнала
+    cur.execute(
+        f"""
+        SELECT is_win, created_at
+        FROM {schema}.{prefix}journal
+        WHERE trader_name = %s
+          AND is_win IS NOT NULL
+        ORDER BY created_at DESC
+        LIMIT %s
+        """,
+        (trader_name, settings.cooldown_losses),
+    )
+    rows = cur.fetchall()
+    streak = 0
+    last_at = None
+    for is_win, created_at in rows:
+        if is_win: break
+        streak += 1
+        last_at = last_at or created_at
+    
     cur.close()
 
     position_values = {
@@ -249,10 +246,10 @@ def _base_candidate(action: dict, state: dict, prices: dict, features: dict, set
 
     return None, "unsupported_action_type"
 
-def review_actions(conn, trader_name: str, actions: list[dict], snaps: dict, features: dict, settings: RiskSettings = None) -> dict:
+def review_actions(conn, trader_name: str, actions: list[dict], snaps: dict, features: dict, settings: RiskSettings = None, use_shadow: bool = False) -> dict:
     if settings is None: settings = RiskSettings.from_env()
     prices = normalize_prices(snaps, features)
-    state = load_risk_state(conn, trader_name, prices, settings)
+    state = load_risk_state(conn, trader_name, prices, settings, use_shadow=use_shadow)
     
     if state["cooldown_active"]:
         return {"accepted": [], "rejected": [{"action": a, "reason": "trader_cooldown_active"} for a in actions], "state": state}
