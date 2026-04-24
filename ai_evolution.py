@@ -6,7 +6,7 @@ import threading
 from datetime import datetime, timedelta
 from contextlib import closing
 from algo_kb_client import upload_file_to_algo_kb
-from gemini_cli_runner import call_ai_markdown_with_fallback
+from gemini_cli_runner import call_ai_markdown_with_fallback, call_ai_json_with_fallback
 from ai_context_cache import is_low_quality_context
 from strategy_candidate_pipeline import create_candidate
 
@@ -51,26 +51,12 @@ def send_telegram_status(message):
     threading.Thread(target=_send, daemon=True).start()
 
 def compact_indicators(indicators):
-    keep_prefixes = (
-        "RSI",
-        "MACD",
-        "ADX",
-        "SMA",
-        "EMA",
-        "VWAP",
-        "ATR",
-        "AL_",
-        "fractal",
-        "STOCH",
-    )
+    keep_prefixes = ("RSI", "MACD", "ADX", "SMA", "EMA", "VWAP", "ATR", "AL_", "fractal", "STOCH")
     compact = {}
     for key, value in (indicators or {}).items():
-        if not any(str(key).startswith(prefix) for prefix in keep_prefixes):
-            continue
-        if isinstance(value, (int, float)):
-            compact[key] = round(float(value), 4)
-        elif isinstance(value, bool):
-            compact[key] = value
+        if not any(str(key).startswith(prefix) for prefix in keep_prefixes): continue
+        if isinstance(value, (int, float)): compact[key] = round(float(value), 4)
+        elif isinstance(value, bool): compact[key] = value
     return compact
 
 def get_market_data_for_day():
@@ -85,43 +71,24 @@ def get_market_data_for_day():
                     ORDER BY secid, updated_at ASC
                 """)
                 for r in cur.fetchall():
-                    secid = r[0]
-                    win = r[1]
-                    key = f"{secid}:{win}"
-                    item = data.setdefault(key, {
-                        "secid": secid,
-                        "window": win,
-                        "bars": 0,
-                        "first_close": None,
-                        "last_close": None,
-                        "high": None,
-                        "low": None,
-                        "volume": 0.0,
-                        "last_indicators": {},
-                        "first_time": None,
-                        "last_time": None,
-                    })
-                    high = float(r[3]) if r[3] is not None else None
-                    low = float(r[4]) if r[4] is not None else None
-                    close = float(r[5]) if r[5] is not None else None
-                    volume = float(r[6] or 0)
+                    secid, win = r[0], r[1]; key = f"{secid}:{win}"
+                    item = data.setdefault(key, {"secid": secid, "window": win, "bars": 0, "first_close": None, "last_close": None, "high": None, "low": None, "volume": 0.0, "last_indicators": {}, "first_time": None, "last_time": None})
+                    high, low, close, volume = float(r[3] or 0), float(r[4] or 0), float(r[5] or 0), float(r[6] or 0)
                     item["bars"] += 1
                     item["first_close"] = close if item["first_close"] is None else item["first_close"]
                     item["last_close"] = close
-                    item["high"] = high if item["high"] is None else max(item["high"], high or item["high"])
-                    item["low"] = low if item["low"] is None else min(item["low"], low or item["low"])
+                    item["high"] = high if item["high"] is None else max(item["high"], high)
+                    item["low"] = low if item["low"] is None else min(item["low"], low)
                     item["volume"] += volume
                     item["last_indicators"] = compact_indicators(r[7] or {})
                     item["first_time"] = r[8].isoformat() if item["first_time"] is None else item["first_time"]
                     item["last_time"] = r[8].isoformat()
     except Exception as e:
-        print(f"Failed to fetch market data for evolution: {e}")
+        print(f"Failed to fetch market data: {e}")
         return []
-    
     summaries = list(data.values())
     for item in summaries:
-        first = item.get("first_close") or 0
-        last = item.get("last_close") or 0
+        first, last = item.get("first_close") or 0, item.get("last_close") or 0
         item["change_pct"] = round(((last / first) - 1) * 100, 3) if first else 0.0
     return summaries[: int(os.getenv("AI_EVOLUTION_MAX_MARKET_GROUPS", "80"))]
 
@@ -132,89 +99,56 @@ def get_trader_performance():
             with conn.cursor() as cur:
                 cur.execute("""
                     SELECT trader_name, secid, action, price, reason, model_id, created_at
-                    FROM trading.journal
-                    WHERE created_at > now() - interval '24 hours'
-                    ORDER BY created_at ASC
+                    FROM trading.journal WHERE created_at > now() - interval '24 hours' ORDER BY created_at ASC
                 """)
                 for r in cur.fetchall():
                     trades.append({"trader": r[0], "secid": r[1], "act": r[2], "pr": float(r[3]), "rs": r[4], "model": r[5], "time": r[6].isoformat()})
     except Exception as e:
-        print(f"Failed to fetch trader journal for evolution: {e}")
+        print(f"Failed to fetch journal: {e}")
         return {}
-
     summary = {}
     for trade in trades:
         item = summary.setdefault(trade["trader"], {"trade_count": 0, "actions": {}, "secids": {}, "latest": []})
         item["trade_count"] += 1
         item["actions"][trade["act"]] = item["actions"].get(trade["act"], 0) + 1
         item["secids"][trade["secid"]] = item["secids"].get(trade["secid"], 0) + 1
-        item["latest"].append({
-            "secid": trade["secid"],
-            "act": trade["act"],
-            "pr": trade["pr"],
-            "rs": str(trade["rs"] or "")[:180],
-            "time": trade["time"],
-        })
-    for item in summary.values():
-        item["latest"] = item["latest"][-10:]
+        item["latest"].append({"secid": trade["secid"], "act": trade["act"], "pr": trade["pr"], "rs": str(trade["rs"] or "")[:180], "time": trade["time"]})
+    for item in summary.values(): item["latest"] = item["latest"][-10:]
     return summary
 
 def deep_analyze_and_evolve():
     print("--- STARTING GRANULAR EVOLUTION DEEP DIVE ---")
-    test_mode = os.getenv("AI_TEST_MODE", "0") == "1"
-    if test_mode:
-        market_data = [{"secid": "SBER", "bars": 1, "last_close": 300.0}]
-        trader_data = {"TestTrader": {"trade_count": 1, "latest": []}}
-    else:
-        market_data = get_market_data_for_day()
-        trader_data = get_trader_performance()
-    if not market_data and not trader_data:
-        print("Evolution skipped: no market/trader data for the last 24 hours.")
-        return
+    market_data = get_market_data_for_day()
+    trader_data = get_trader_performance()
+    if not market_data and not trader_data: return
 
-    prompt = f"""
-    ROLE: Lead Quantitative Auditor & Trading Mentor.
-    TASK: METICULOUS retrospective analysis of TODAY'S trading session.
-    SYSTEM DNA: {json.dumps(TRADERS_DNA)}
-    MARKET DATA: {json.dumps(market_data)}
-    ACTUAL TRADES: {json.dumps(trader_data)}
-    INSTRUCTIONS: 1. Identify Perfect Path for every asset. 2. Compare actual performance. 3. Propose DNA tuning.
-    OUTPUT: Detailed Markdown Report.
-    """
+    prompt = f"ROLE: Lead Auditor. RETROSPECTIVE: TODAY session. MARKET: {json.dumps(market_data)}. TRADES: {json.dumps(trader_data)}. DNA: {json.dumps(TRADERS_DNA)}. TASK: Identify flaws, propose NEW 'Learned Traits' for EACH trader. OUTPUT: Markdown Report."
+    models = ["gemini-3.1-pro-preview", "gemini-2.5-pro"]
+    report_md, used_model = call_ai_markdown_with_fallback(prompt, models, name="Evolution", log_func=print, category="evolution")
 
-    # Модели из рейтинга
-    models = ["gemini-3-flash-preview", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro"]
-    report_md = "Analysis failed."
-    report_md = call_ai_markdown_with_fallback(prompt, models, name="Evolution", log_func=print, category="evolution")[0] or report_md
-
-    try:
-        if test_mode:
-            print("AI_TEST_MODE=1: skipped KB upload and Telegram notification.")
-        else:
-            if is_low_quality_context(report_md):
-                print("Evolution produced no usable report; skipped ALGO KB upload.")
-                return
-            
+    if report_md:
+        try:
             with closing(get_db_connection()) as conn:
-                candidate_id = create_candidate(
-                    conn,
-                    source="ai_evolution",
-                    title=f"Evolution audit {datetime.now().strftime('%Y-%m-%d')}",
-                    candidate_text=report_md,
-                    metadata={"kind": "daily_evolution_report", "auto_promote": False},
-                )
-                print(f"Evolution candidate saved: id={candidate_id}")
+                with conn.cursor() as cur:
+                    cur.execute("INSERT INTO trading.periodic_audits (audit_type, period_start, period_end, report_text) VALUES ('DAILY_EVOLUTION', CURRENT_DATE, CURRENT_DATE, %s) ON CONFLICT (audit_type, period_end) DO UPDATE SET report_text = EXCLUDED.report_text", (report_md,))
                 conn.commit()
+            
+            # 4. AUTO-CLONING LOGIC
+            print("Extracting shadow DNA from report...")
+            dna_prompt = f"Based on this report, extract ONLY a raw JSON object: {{trader_name: 'specific new learned traits string'}}. Focus only on actionable tuning rules. REPORT: {report_md}"
+            dna_json, _ = call_ai_json_with_fallback(dna_prompt, ["gemini-3-flash-preview"], name="DnaExtractor", category="evolution")
+            
+            if dna_json:
+                with closing(get_db_connection()) as conn:
+                    with conn.cursor() as cur:
+                        for name, dna in dna_json.items():
+                            if name in TRADERS_DNA:
+                                cur.execute("INSERT INTO trading.shadow_portfolio (trader_name, learned_traits, is_active) VALUES (%s, %s, TRUE) ON CONFLICT (trader_name) DO UPDATE SET learned_traits = EXCLUDED.learned_traits, is_active = TRUE", (name, dna))
+                                print(f"Shadow clone updated: {name}")
+                    conn.commit()
 
-            filename = os.path.join(BASE_DIR, f"deep_dive_{datetime.now().strftime('%Y-%m-%d')}.md")
-            with open(filename, "w") as f: f.write(report_md)
-            upload_file_to_algo_kb(filename, log_func=print)
-            send_telegram_status(f"🧬 <b>ЭВОЛЮЦИОННЫЙ АУДИТ ЗАВЕРШЕН</b>\nОтчет за {datetime.now().strftime('%Y-%m-%d')} загружен в ALGO KB.")
-    except Exception as e:
-        print(f"Evolution failed: {e}")
-
-if __name__ == "__main__":
-    deep_analyze_and_evolve()
+            send_telegram_status(f"🧬 <b>ЭВОЛЮЦИОННЫЙ АУДИТ ЗАВЕРШЕН</b>\nНовые черты применены к теневым клонам в БД.")
+        except Exception as e: print(f"Post-evolution processing failed: {e}")
 
 if __name__ == "__main__":
     deep_analyze_and_evolve()
