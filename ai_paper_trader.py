@@ -107,9 +107,42 @@ def compact_regime_label(label):
     if "BEAR" in label: return "BEAR"
     return "MIXED"
 
+TRADER_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "summary": {"type": "string"},
+        "market_bias": {"type": "string", "enum": ["bullish", "bearish", "neutral"]},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "actions": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "secid": {"type": "string"},
+                    "action": {"type": "string", "enum": ["buy", "sell", "hold", "close", "reduce", "short", "cover", "limit_buy", "limit_sell", "stop_loss"]},
+                    "quantity": {"type": "integer"},
+                    "target_price": {"type": "number"},
+                    "reason": {"type": "string"}
+                },
+                "required": ["secid", "action", "reason"]
+            }
+        },
+        "risk_notes": {"type": "string"}
+    },
+    "required": ["summary", "market_bias", "confidence", "actions"]
+}
+
 def call_ai_with_fallback(prompt, models_rank, trader_name=None):
     preferred_models = [m["id"] if isinstance(m, dict) else str(m) for m in models_rank]
-    return call_ai_json_with_fallback(prompt, models=preferred_models, name=trader_name or "AI Trader", log_func=log_event, category="trader", trader_name=trader_name)
+    return call_ai_json_with_fallback(
+        prompt, 
+        models=preferred_models, 
+        name=trader_name or "AI Trader", 
+        log_func=log_event, 
+        category="trader", 
+        trader_name=trader_name,
+        response_schema=TRADER_RESPONSE_SCHEMA
+    )
 
 def execute_trade_actions(trader_name, actions, current_cash, snapshots, model_id, market_features=None, use_shadow=False):
     # Внутренняя функция теперь использует Decimal и поддерживает тень
